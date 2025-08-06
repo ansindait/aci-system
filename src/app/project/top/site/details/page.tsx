@@ -7,7 +7,7 @@ import BOQDetailsModal from "./BOQDetailsModal";
 import Pagination from "@/app/components/Pagination";
 import { usePagination } from "@/app/hooks/usePagination";
 import { db } from "@/lib/firebase";
-import { collection, getDocs, query, orderBy, limit, onSnapshot, doc, getDoc, where, updateDoc } from "firebase/firestore";
+import { collection, getDocs, query, orderBy, limit, onSnapshot, doc, getDoc, where, updateDoc, addDoc } from "firebase/firestore";
 import { useEffect } from "react";
 import { onAuthStateChanged, User } from "firebase/auth";
 import { auth } from "@/lib/firebase";
@@ -505,6 +505,7 @@ const SiteDetailPage = () => {
 
   const [siteData, setSiteData] = useState<SiteData[]>([]);
   const [users, setUsers] = useState<any[]>([]); // Simpan semua user
+  const [divisionUsers, setDivisionUsers] = useState<{[key: string]: any[]}>({}); // User per division
 
   const [filters, setFilters] = useState({
     siteName: "",
@@ -567,12 +568,136 @@ const SiteDetailPage = () => {
     fetchUserName();
   }, [user]);
 
-  // Fetch semua user sekali saja
+  // Fetch semua user sekali saja dan kelompokkan berdasarkan division
   useEffect(() => {
     const fetchUsers = async () => {
       const usersRef = collection(db, "users");
       const snapshot = await getDocs(usersRef);
-      setUsers(snapshot.docs.map(doc => doc.data()));
+      const allUsers = snapshot.docs.map(doc => doc.data());
+      setUsers(allUsers);
+      
+      // Kelompokkan user berdasarkan division
+      const usersByDivision: {[key: string]: any[]} = {};
+      allUsers.forEach(user => {
+        // Coba berbagai kemungkinan field division
+        const division = user.division?.toLowerCase() || 
+                        user.department?.toLowerCase() || 
+                        user.role?.toLowerCase() || '';
+        
+        console.log(`User ${user.name}: division="${user.division}", department="${user.department}", role="${user.role}", final division="${division}"`);
+        
+        if (division) {
+          if (!usersByDivision[division]) {
+            usersByDivision[division] = [];
+          }
+          usersByDivision[division].push(user);
+        }
+        
+        // Mapping khusus untuk division yang sesuai dengan PIC
+        // Hanya tambahkan user jika role/division mereka benar-benar sesuai
+        
+        // PIC Permit - hanya user dengan role/division permit
+        if (user.role?.toLowerCase() === 'permit' || division === 'permit') {
+          if (!usersByDivision['permit']) {
+            usersByDivision['permit'] = [];
+          }
+          // Cek apakah user sudah ada di array untuk menghindari duplikasi
+          if (!usersByDivision['permit'].find(u => u.name === user.name)) {
+            usersByDivision['permit'].push(user);
+          }
+        }
+        
+        // PIC SND - hanya user dengan role/division snd atau survey
+        if (user.role?.toLowerCase() === 'snd' || user.role?.toLowerCase() === 'survey' || 
+            division === 'snd' || division === 'survey') {
+          if (!usersByDivision['snd']) {
+            usersByDivision['snd'] = [];
+          }
+          if (!usersByDivision['snd'].find(u => u.name === user.name)) {
+            usersByDivision['snd'].push(user);
+          }
+        }
+        
+        // PIC CW - hanya user dengan role/division cw atau construction
+        if (user.role?.toLowerCase() === 'cw' || user.role?.toLowerCase() === 'construction' || 
+            division === 'cw' || division === 'construction') {
+          if (!usersByDivision['cw']) {
+            usersByDivision['cw'] = [];
+          }
+          if (!usersByDivision['cw'].find(u => u.name === user.name)) {
+            usersByDivision['cw'].push(user);
+          }
+        }
+        
+        // PIC EL - hanya user dengan role/division el atau electrical
+        if (user.role?.toLowerCase() === 'el' || user.role?.toLowerCase() === 'electrical' || 
+            division === 'el' || division === 'electrical') {
+          if (!usersByDivision['el']) {
+            usersByDivision['el'] = [];
+          }
+          if (!usersByDivision['el'].find(u => u.name === user.name)) {
+            usersByDivision['el'].push(user);
+          }
+        }
+        
+        // PIC Document - hanya user dengan role/division document atau dc
+        if (user.role?.toLowerCase() === 'document' || user.role?.toLowerCase() === 'dc' || 
+            division === 'document' || division === 'dc') {
+          if (!usersByDivision['document']) {
+            usersByDivision['document'] = [];
+          }
+          if (!usersByDivision['document'].find(u => u.name === user.name)) {
+            usersByDivision['document'].push(user);
+          }
+        }
+        
+        // Mapping untuk division lainnya
+        // SND bisa juga disebut 'survey'
+        if (user.role?.toLowerCase() === 'survey') {
+          if (!usersByDivision['snd']) {
+            usersByDivision['snd'] = [];
+          }
+          usersByDivision['snd'].push(user);
+        }
+        
+        // CW bisa juga disebut 'construction'
+        if (user.role?.toLowerCase() === 'construction') {
+          if (!usersByDivision['cw']) {
+            usersByDivision['cw'] = [];
+          }
+          usersByDivision['cw'].push(user);
+        }
+        
+        // EL bisa juga disebut 'electrical'
+        if (user.role?.toLowerCase() === 'electrical') {
+          if (!usersByDivision['el']) {
+            usersByDivision['el'] = [];
+          }
+          usersByDivision['el'].push(user);
+        }
+      });
+      setDivisionUsers(usersByDivision);
+      
+      // Debug: Log user data
+      console.log('All users:', allUsers);
+      console.log('Users by division:', usersByDivision);
+      
+      // Log detail untuk setiap division
+      Object.keys(usersByDivision).forEach(division => {
+        console.log(`Division "${division}":`, usersByDivision[division].map(u => u.name));
+      });
+      
+      // Log semua field yang ada di user untuk debugging
+      if (allUsers.length > 0) {
+        console.log('Sample user fields:', Object.keys(allUsers[0]));
+        console.log('Sample user data:', allUsers[0]);
+      }
+      
+      // Log semua field yang ada di user untuk debugging
+      if (allUsers.length > 0) {
+        console.log('Sample user fields:', Object.keys(allUsers[0]));
+        console.log('Sample user data:', allUsers[0]);
+      }
     };
     fetchUsers();
   }, []);
@@ -846,6 +971,7 @@ const SiteDetailPage = () => {
           
           // Track updates for different documents
           const updates: { docId: string; fields: any }[] = [];
+          const newTasksToCreate: { division: string; pic: string; hp?: string }[] = [];
           
           // Check regular fields (non-HP fields) - these go to the latest document
           const regularFields: any = {};
@@ -857,11 +983,41 @@ const SiteDetailPage = () => {
           addFieldIfChanged("siteId", formData.siteId, row.siteId) && (regularFields.siteId = formData.siteId);
           addFieldIfChanged("siteName", formData.siteName, row.siteName) && (regularFields.siteName = formData.siteName);
           addFieldIfChanged("rpm", formData.rpm, row.rpm) && (regularFields.rpm = formData.rpm);
-          addFieldIfChanged("picPermit", formData.picPermit, row.picPermit) && (regularFields.picPermit = formData.picPermit);
-          addFieldIfChanged("picSnd", formData.picSnd, row.picSnd) && (regularFields.picSnd = formData.picSnd);
-          addFieldIfChanged("picCw", formData.picCw, row.picCw) && (regularFields.picCw = formData.picCw);
-          addFieldIfChanged("picEl", formData.picEl, row.picEl) && (regularFields.picEl = formData.picEl);
-          addFieldIfChanged("picDocument", formData.picDocument, row.picDocument) && (regularFields.picDocument = formData.picDocument);
+          
+          // Check PIC changes and determine if new tasks need to be created
+          const picChanges = [
+            { field: 'picPermit', division: 'permit', value: formData.picPermit, original: row.picPermit },
+            { field: 'picSnd', division: 'snd', value: formData.picSnd, original: row.picSnd },
+            { field: 'picCw', division: 'cw', value: formData.picCw, original: row.picCw },
+            { field: 'picEl', division: 'el', value: formData.picEl, original: row.picEl },
+            { field: 'picDocument', division: 'document', value: formData.picDocument, original: row.picDocument }
+          ];
+          
+          for (const picChange of picChanges) {
+            const change = addFieldIfChanged(picChange.field, picChange.value, picChange.original);
+            if (change && change.value) {
+              // Check if a document for this division already exists
+              const existingDivisionDoc = siteDocs.find(doc => 
+                doc.division && doc.division.toLowerCase() === picChange.division.toLowerCase()
+              );
+              
+              if (existingDivisionDoc) {
+                // Update existing document
+                console.log(`Updating PIC ${picChange.division} on existing document ${existingDivisionDoc.docId}: "${change.value}"`);
+                updates.push({ 
+                  docId: existingDivisionDoc.docId, 
+                  fields: { pic: change.value } 
+                });
+              } else {
+                // Create new task for this division
+                console.log(`Creating new task for division ${picChange.division} with PIC: "${change.value}"`);
+                newTasksToCreate.push({ 
+                  division: picChange.division, 
+                  pic: change.value 
+                });
+              }
+            }
+          }
           
           // Add regular fields update to latest document
           if (Object.keys(regularFields).length > 0) {
@@ -891,22 +1047,29 @@ const SiteDetailPage = () => {
                   fields: { hp: change.value } 
                 });
               } else {
-                console.warn(`No document found for division ${hpUpdate.division} in site ${row.siteName}`);
-                // Fallback: update on the latest document
-                if (!updates.find(u => u.docId === row.docId)) {
-                  updates.push({ docId: row.docId, fields: {} });
-                }
-                const latestUpdate = updates.find(u => u.docId === row.docId);
-                if (latestUpdate) {
-                  latestUpdate.fields[hpUpdate.field] = change.value;
+                // Add HP to new task creation if it's being created
+                const newTaskIndex = newTasksToCreate.findIndex(task => task.division === hpUpdate.division);
+                if (newTaskIndex !== -1) {
+                  newTasksToCreate[newTaskIndex].hp = change.value;
+                } else {
+                  console.warn(`No document found for division ${hpUpdate.division} in site ${row.siteName}`);
+                  // Fallback: update on the latest document
+                  if (!updates.find(u => u.docId === row.docId)) {
+                    updates.push({ docId: row.docId, fields: {} });
+                  }
+                  const latestUpdate = updates.find(u => u.docId === row.docId);
+                  if (latestUpdate) {
+                    latestUpdate.fields[hpUpdate.field] = change.value;
+                  }
                 }
               }
             }
           }
           
           console.log("All updates to perform:", updates);
+          console.log("New tasks to create:", newTasksToCreate);
           
-          if (updates.length === 0) {
+          if (updates.length === 0 && newTasksToCreate.length === 0) {
             alert("Tidak ada perubahan untuk disimpan.");
             setIsEditing(false);
             setSelectedRowNo(null);
@@ -920,8 +1083,42 @@ const SiteDetailPage = () => {
             await updateDoc(doc(db, "tasks", update.docId), update.fields);
           }
           
+          // Create new tasks for divisions that don't exist yet
+          for (const newTask of newTasksToCreate) {
+            console.log(`Creating new task for division ${newTask.division} with PIC: ${newTask.pic}`);
+            
+            // Get the latest document to copy basic site information
+            const latestDoc = siteDocs[0];
+            
+            const newTaskData = {
+              siteId: latestDoc.siteId || row.siteId,
+              siteName: latestDoc.siteName || row.siteName,
+              siteType: latestDoc.siteType || row.siteType,
+              region: latestDoc.region || row.region,
+              city: latestDoc.city || row.city,
+              rpm: latestDoc.rpm || row.rpm,
+              division: newTask.division,
+              pic: newTask.pic,
+              hp: newTask.hp || "",
+              sections: [], // Empty sections array for new task
+              createdAt: new Date(),
+              // Copy PO fields from the latest document
+              poPermit: latestDoc.poPermit || row.poPermit,
+              poSnd: latestDoc.poSnd || row.poSnd,
+              poImp: latestDoc.poImp || row.poImp,
+              poSf: latestDoc.poSf || row.poSf,
+              poAdd: latestDoc.poAdd || row.poAdd,
+            };
+            
+            await addDoc(collection(db, "tasks"), newTaskData);
+            console.log(`Successfully created new task for division ${newTask.division}`);
+          }
+          
           // Show success message
-          alert("Data berhasil diupdate!");
+          const updateMessage = updates.length > 0 ? `Updated ${updates.length} existing task(s).` : "";
+          const createMessage = newTasksToCreate.length > 0 ? `Created ${newTasksToCreate.length} new task(s).` : "";
+          const message = `${updateMessage} ${createMessage}`.trim();
+          alert(`Data berhasil diupdate! ${message}`);
           
           // Trigger refresh by incrementing refreshTrigger
           setRefreshTrigger(prev => prev + 1);
@@ -1708,48 +1905,93 @@ const SiteDetailPage = () => {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700">PIC Permit</label>
-                    <input
-                      type="text"
+                    <select
                       value={formData.picPermit || ""}
                       onChange={(e) => handleInputChange("picPermit", e.target.value)}
-                      className="mt-1 border border-gray-300 rounded-md px-3 py-2 text-sm w-full focus:outline-none focus:ring-2 focus:ring-indigo-500 text-gray-800"
-                    />
+                      className="mt-1 border border-gray-300 rounded-md px-3 py-2 text-sm w-full focus:outline-none focus:ring-2 focus:ring-indigo-500 text-gray-800 bg-white"
+                    >
+                      <option value="">Select PIC Permit</option>
+                      {divisionUsers['permit']?.map((user, index) => (
+                        <option key={index} value={user.name}>
+                          {user.name}
+                        </option>
+                      ))}
+                      {(!divisionUsers['permit'] || divisionUsers['permit'].length === 0) && (
+                        <option value="" disabled>No users found for Permit division</option>
+                      )}
+                    </select>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700">PIC SND</label>
-                    <input
-                      type="text"
+                    <select
                       value={formData.picSnd || ""}
                       onChange={(e) => handleInputChange("picSnd", e.target.value)}
-                      className="mt-1 border border-gray-300 rounded-md px-3 py-2 text-sm w-full focus:outline-none focus:ring-2 focus:ring-indigo-500 text-gray-800"
-                    />
+                      className="mt-1 border border-gray-300 rounded-md px-3 py-2 text-sm w-full focus:outline-none focus:ring-2 focus:ring-indigo-500 text-gray-800 bg-white"
+                    >
+                      <option value="">Select PIC SND</option>
+                      {divisionUsers['snd']?.map((user, index) => (
+                        <option key={index} value={user.name}>
+                          {user.name}
+                        </option>
+                      ))}
+                      {(!divisionUsers['snd'] || divisionUsers['snd'].length === 0) && (
+                        <option value="" disabled>No users found for SND division</option>
+                      )}
+                    </select>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700">PIC CW</label>
-                    <input
-                      type="text"
+                    <select
                       value={formData.picCw || ""}
                       onChange={(e) => handleInputChange("picCw", e.target.value)}
-                      className="mt-1 border border-gray-300 rounded-md px-3 py-2 text-sm w-full focus:outline-none focus:ring-2 focus:ring-indigo-500 text-gray-800"
-                    />
+                      className="mt-1 border border-gray-300 rounded-md px-3 py-2 text-sm w-full focus:outline-none focus:ring-2 focus:ring-indigo-500 text-gray-800 bg-white"
+                    >
+                      <option value="">Select PIC CW</option>
+                      {divisionUsers['cw']?.map((user, index) => (
+                        <option key={index} value={user.name}>
+                          {user.name}
+                        </option>
+                      ))}
+                      {(!divisionUsers['cw'] || divisionUsers['cw'].length === 0) && (
+                        <option value="" disabled>No users found for CW division</option>
+                      )}
+                    </select>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700">PIC EL</label>
-                    <input
-                      type="text"
+                    <select
                       value={formData.picEl || ""}
                       onChange={(e) => handleInputChange("picEl", e.target.value)}
-                      className="mt-1 border border-gray-300 rounded-md px-3 py-2 text-sm w-full focus:outline-none focus:ring-2 focus:ring-indigo-500 text-gray-800"
-                    />
+                      className="mt-1 border border-gray-300 rounded-md px-3 py-2 text-sm w-full focus:outline-none focus:ring-2 focus:ring-indigo-500 text-gray-800 bg-white"
+                    >
+                      <option value="">Select PIC EL</option>
+                      {divisionUsers['el']?.map((user, index) => (
+                        <option key={index} value={user.name}>
+                          {user.name}
+                        </option>
+                      ))}
+                      {(!divisionUsers['el'] || divisionUsers['el'].length === 0) && (
+                        <option value="" disabled>No users found for EL division</option>
+                      )}
+                    </select>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700">PIC Document</label>
-                    <input
-                      type="text"
+                    <select
                       value={formData.picDocument || ""}
                       onChange={(e) => handleInputChange("picDocument", e.target.value)}
-                      className="mt-1 border border-gray-300 rounded-md px-3 py-2 text-sm w-full focus:outline-none focus:ring-2 focus:ring-indigo-500 text-gray-800"
-                    />
+                      className="mt-1 border border-gray-300 rounded-md px-3 py-2 text-sm w-full focus:outline-none focus:ring-2 focus:ring-indigo-500 text-gray-800 bg-white"
+                    >
+                      <option value="">Select PIC Document</option>
+                      {divisionUsers['document']?.map((user, index) => (
+                        <option key={index} value={user.name}>
+                          {user.name}
+                        </option>
+                      ))}
+                      {(!divisionUsers['document'] || divisionUsers['document'].length === 0) && (
+                        <option value="" disabled>No users found for Document division</option>
+                      )}
+                    </select>
                   </div>
 
                 </div>
