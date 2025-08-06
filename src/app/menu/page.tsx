@@ -84,7 +84,7 @@ const AnsindaDashboard: React.FC = () => {
     if (!role) return [];
     const lowerCaseRole = role.toLowerCase();
     if (lowerCaseRole === 'top management') return ['HUMAN RESOURCE', 'OPERATIONS', 'PROJECT', 'MATERIAL', 'FINANCE'];
-    if (lowerCaseRole === 'rpm') return ['HUMAN RESOURCE','PROJECT', 'MATERIAL'];
+    if (lowerCaseRole === 'rpm') return ['PROJECT', 'MATERIAL'];
     if (lowerCaseRole === 'pic') return ['PROJECT'];
     if (lowerCaseRole === 'qc') return ['PROJECT'];
     if (lowerCaseRole === 'ops') return ['OPERATIONS'];
