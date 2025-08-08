@@ -115,6 +115,9 @@ const RequestOpsPage = () => {
   const [notaFile, setNotaFile] = useState<File | null>(null);
   const [notaFileName, setNotaFileName] = useState('');
   const [notaPreview, setNotaPreview] = useState<string>('');
+  const [siteNameSearch, setSiteNameSearch] = useState('');
+  const [showSiteNameSuggestions, setShowSiteNameSuggestions] = useState(false);
+  const [filteredSiteNames, setFilteredSiteNames] = useState<string[]>([]);
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -307,27 +310,81 @@ const RequestOpsPage = () => {
       
       let allSiteNames: string[] = [];
       
-      // Fetch site names dari collection tasks berdasarkan rpm saja
-      const tasksQuery = query(
-        collection(db, 'tasks'),
-        where('rpm', '==', rpm)
-      );
-      const tasksSnapshot = await getDocs(tasksQuery);
-      
-      tasksSnapshot.forEach(doc => {
-        const data = doc.data();
-        if (data.siteName) {
-          allSiteNames.push(data.siteName);
+      try {
+        let tasksQuery;
+        if (form.division === 'rpm') {
+          // Jika division adalah rpm, ambil berdasarkan rpm
+          tasksQuery = query(
+            collection(db, 'tasks'),
+            where('rpm', '==', rpm)
+          );
+        } else if (form.division && form.picName) {
+          // Jika division lain dan ada picName, ambil berdasarkan pic dan division
+          tasksQuery = query(
+            collection(db, 'tasks'),
+            where('pic', '==', form.picName),
+            where('division', '==', form.division)
+          );
+        } else {
+          // Jika belum pilih division atau pic, kosongkan options
+          setSiteNameOptions([]);
+          return;
         }
-      });
-      
-      // Remove duplicates and set options
-      const uniqueSiteNames = Array.from(new Set(allSiteNames));
-      setSiteNameOptions(uniqueSiteNames);
+
+        const tasksSnapshot = await getDocs(tasksQuery);
+        
+        tasksSnapshot.forEach(doc => {
+          const data = doc.data();
+          if (data.siteName) {
+            allSiteNames.push(data.siteName);
+          }
+        });
+        
+        // Remove duplicates and set options
+        const uniqueSiteNames = Array.from(new Set(allSiteNames));
+        setSiteNameOptions(uniqueSiteNames);
+
+        // Reset form.siteName jika nilai sekarang tidak ada dalam opsi baru
+        if (form.siteName && !uniqueSiteNames.includes(form.siteName)) {
+          setForm(prev => ({ ...prev, siteName: '' }));
+          setSiteNameSearch('');
+        }
+      } catch (error) {
+        console.error('Error fetching site names:', error);
+        setSiteNameOptions([]);
+      }
     };
     
     fetchSiteNameOptions();
-  }, [rpm]);
+  }, [rpm, form.division, form.picName]); // Tambah dependencies untuk update saat division atau picName berubah
+
+  // Handle site name search and filtering
+  useEffect(() => {
+    // Delay search for better performance
+    const delaySearch = setTimeout(() => {
+      if (siteNameSearch) {
+        // Case-insensitive search with multiple words support
+        const searchTerms = siteNameSearch.toLowerCase().split(/\s+/);
+        const filtered = siteNameOptions.filter(name => 
+          searchTerms.every(term => name.toLowerCase().includes(term))
+        );
+        setFilteredSiteNames(filtered);
+      } else {
+        // Show all options when search is empty
+        setFilteredSiteNames(siteNameOptions);
+      }
+    }, 150); // Small delay for better performance
+
+    return () => clearTimeout(delaySearch);
+  }, [siteNameSearch, siteNameOptions]);
+
+  // Cleanup invalid site name when options change
+  useEffect(() => {
+    if (form.siteName && !siteNameOptions.includes(form.siteName)) {
+      setForm(prev => ({ ...prev, siteName: '' }));
+      setSiteNameSearch('');
+    }
+  }, [siteNameOptions, form.siteName]);
 
   const handleOpsChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     // 1. Hapus semua karakter non-digit untuk mendapatkan angka mentah
@@ -735,19 +792,67 @@ const RequestOpsPage = () => {
               {/* Right Column */}
               <div>
                 {/* Site Name */}
-                <div>
+                <div className="relative">
                   <label className="block text-sm font-bold text-gray-700 mb-2">Site Name</label>
-                  <select
-                    name="siteName"
-                    value={form.siteName}
-                    onChange={handleFormChange}
-                    className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 bg-white"
-                  >
-                    <option value="">--Site Name--</option>
-                    {siteNameOptions.map((name) => (
-                        <option key={name} value={name}>{name}</option>
-                      ))}
-                  </select>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      name="siteName"
+                      value={siteNameSearch}
+                      onChange={(e) => {
+                        const searchValue = e.target.value;
+                        setSiteNameSearch(searchValue);
+                        setShowSiteNameSuggestions(true);
+                        // Clear form value when searching
+                        if (searchValue !== form.siteName) {
+                          setForm(prev => ({ ...prev, siteName: '' }));
+                        }
+                      }}
+                      onFocus={() => setShowSiteNameSuggestions(true)}
+                      placeholder="Search and select site name..."
+                      className={`w-full p-2 pr-10 border rounded-md focus:ring-blue-500 focus:border-blue-500 bg-white
+                        ${form.siteName ? 'border-green-500' : 'border-gray-300'}`}
+                      autoComplete="off"
+                    />
+                    {/* Status indicator */}
+                    <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                      {form.siteName && (
+                        <svg className="h-5 w-5 text-green-500" fill="none" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" stroke="currentColor">
+                          <path d="M5 13l4 4L19 7"></path>
+                        </svg>
+                      )}
+                    </div>
+                  </div>
+                  
+                  {/* Helper text */}
+                  <p className="mt-1 text-sm text-gray-500">
+                    {!form.siteName && siteNameSearch && 'Please select a site from the list'}
+                  </p>
+
+                  {/* Dropdown suggestions */}
+                  {showSiteNameSuggestions && (
+                    <ul className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-auto">
+                      {filteredSiteNames.length > 0 ? (
+                        filteredSiteNames.map((name) => (
+                          <li
+                            key={name}
+                            className={`px-4 py-2 cursor-pointer hover:bg-blue-50 ${
+                              form.siteName === name ? 'bg-blue-50 font-semibold' : ''
+                            }`}
+                            onMouseDown={() => {
+                              setForm(prev => ({ ...prev, siteName: name }));
+                              setSiteNameSearch(name);
+                              setShowSiteNameSuggestions(false);
+                            }}
+                          >
+                            {name}
+                          </li>
+                        ))
+                      ) : (
+                        <li className="px-4 py-2 text-gray-500">No matching sites found</li>
+                      )}
+                    </ul>
+                  )}
                 </div>
                 {/* Request Type */}
                 <div className="mt-6">

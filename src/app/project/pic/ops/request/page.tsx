@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import Sidebar from '@/app/components/Sidebar'; // Assuming Sidebar component exists
 import { db } from '@/lib/firebase';
-import { collection, getDocs, query, doc, getDoc, where, addDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, getDocs, query, doc, getDoc, where, addDoc, setDoc, serverTimestamp, orderBy, limit } from 'firebase/firestore';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { getAuth, onAuthStateChanged } from 'firebase/auth';
 
@@ -106,11 +106,16 @@ const RequestOpsPage = () => {
   const [siteNameOptions, setSiteNameOptions] = useState<string[]>([]);
   const [cityOptions, setCityOptions] = useState<string[]>([]);
   const [picOptions, setPicOptions] = useState<string[]>([]);
-  const [filterDate, setFilterDate] = useState('');
+  // Set default filter to today's date
+  const today = new Date().toISOString().split('T')[0];
+  const [filterDate, setFilterDate] = useState(today);
   const [fileNota, setFileNota] = useState<File | null>(null);
   const [userName, setUserName] = useState('');
   const [userDivision, setUserDivision] = useState('');
   const [notaPreview, setNotaPreview] = useState<string>('');
+  const [siteNameSearch, setSiteNameSearch] = useState('');
+  const [showSiteNameSuggestions, setShowSiteNameSuggestions] = useState(false);
+  const [filteredSiteNames, setFilteredSiteNames] = useState<string[]>([]);
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -124,13 +129,17 @@ const RequestOpsPage = () => {
         const userDocRef = doc(db, 'users', user.uid);
         const userDoc = await getDoc(userDocRef);
         if (userDoc.exists()) {
-          setUserName(userDoc.data().name || '');
-          setUserDivision(userDoc.data().division || '');
+          const userData = userDoc.data();
+          console.log('User data loaded:', userData);
+          setUserName(userData.name || '');
+          setUserDivision(userData.division || '');
         } else {
+          console.log('User document does not exist');
           setUserName('');
           setUserDivision('');
         }
       } else {
+        console.log('No user logged in');
         setUserName('');
         setUserDivision('');
       }
@@ -138,39 +147,111 @@ const RequestOpsPage = () => {
     return () => unsubscribe();
   }, []);
 
-  // Fetch city options hanya untuk tasks yang pic = userName
+    // Fetch all city options dengan caching
   useEffect(() => {
     const fetchCities = async () => {
-      if (!userName) {
-        setCityOptions([]);
+      // Cek cache terlebih dahulu
+      const cachedCities = sessionStorage.getItem('all_cities');
+      if (cachedCities) {
+        const cities = JSON.parse(cachedCities);
+        setCityOptions(cities);
+        console.log('Using cached cities:', cities);
         return;
       }
-      const snapshot = await getDocs(query(collection(db, 'tasks'), where('pic', '==', userName)));
-      const cities = Array.from(new Set(snapshot.docs.map(doc => doc.data().city).filter(Boolean)));
-      setCityOptions(cities);
-    };
-    fetchCities();
-  }, [userName]);
 
-  // Fetch siteName options setiap kali city, picName, atau division berubah
+      // Jika tidak ada cache, fetch dari Firestore
+      try {
+        const tasksRef = collection(db, 'tasks');
+        const snapshot = await getDocs(tasksRef);
+        console.log('Total tasks found:', snapshot.size);
+        
+        // Extract semua city yang unik dan sort
+        const cities = Array.from(new Set(
+          snapshot.docs
+            .map(doc => doc.data().city)
+            .filter(Boolean) // Remove empty values
+        )).sort(); // Sort alphabetically
+        
+        console.log('All unique cities found:', cities);
+        
+        // Set ke state dan cache
+        setCityOptions(cities);
+        sessionStorage.setItem('all_cities', JSON.stringify(cities));
+      } catch (error) {
+        console.error('Error fetching cities:', error);
+        setCityOptions([]);
+      }
+    };
+
+    fetchCities();
+  }, []); // No dependencies since we want to fetch once on component mount
+
+  // Fetch siteName options dengan caching dan optimasi
   useEffect(() => {
     const fetchSiteNames = async () => {
       if (!form.city || !form.picName || !form.division) {
         setSiteNameOptions([]);
         return;
       }
+
+      // Buat unique key untuk cache
+      const cacheKey = `siteNames_${form.city}_${form.picName}_${form.division}`;
+      
+      // Cek apakah data sudah ada di sessionStorage
+      const cachedSiteNames = sessionStorage.getItem(cacheKey);
+      if (cachedSiteNames) {
+        const names = JSON.parse(cachedSiteNames);
+        setSiteNameOptions(names);
+        
+        // Reset form.siteName jika nilai sekarang tidak ada dalam opsi baru
+        if (form.siteName && !names.includes(form.siteName)) {
+          setForm(prev => ({ ...prev, siteName: '' }));
+          setSiteNameSearch('');
+        }
+        return;
+      }
+
+      // Jika belum ada di cache, ambil dari Firestore dengan query yang dioptimalkan
       const q = query(
         collection(db, 'tasks'),
         where('city', '==', form.city),
         where('pic', '==', form.picName),
         where('division', '==', form.division)
       );
+      
       const snapshot = await getDocs(q);
       const names = Array.from(new Set(snapshot.docs.map(doc => doc.data().siteName).filter(Boolean)));
+      
+      // Simpan di sessionStorage untuk penggunaan berikutnya
+      sessionStorage.setItem(cacheKey, JSON.stringify(names));
       setSiteNameOptions(names);
+      
+      // Reset form.siteName jika nilai sekarang tidak ada dalam opsi baru
+      if (form.siteName && !names.includes(form.siteName)) {
+        setForm(prev => ({ ...prev, siteName: '' }));
+        setSiteNameSearch('');
+      }
     };
     fetchSiteNames();
   }, [form.city, form.picName, form.division]);
+
+  // Handle site name search and filtering
+  useEffect(() => {
+    const delaySearch = setTimeout(() => {
+      if (siteNameSearch) {
+        // Case-insensitive search with multiple words support
+        const searchTerms = siteNameSearch.toLowerCase().split(/\s+/);
+        const filtered = siteNameOptions.filter(name => 
+          searchTerms.every(term => name.toLowerCase().includes(term))
+        );
+        setFilteredSiteNames(filtered);
+      } else {
+        setFilteredSiteNames(siteNameOptions);
+      }
+    }, 150);
+
+    return () => clearTimeout(delaySearch);
+  }, [siteNameSearch, siteNameOptions]);
 
   // Fetch PIC options setiap kali city atau division berubah
   useEffect(() => {
@@ -195,14 +276,25 @@ const RequestOpsPage = () => {
     const fetchAllRequestOps = async () => {
       setLoading(true);
       try {
-        const tasksSnapshot = await getDocs(collection(db, 'tasks'));
-        let allRequestOps: HistoryData[] = [];
-        for (const taskDoc of tasksSnapshot.docs) {
-          const requestOpsSnapshot = await getDocs(collection(db, 'tasks', taskDoc.id, 'request_ops'));
-          requestOpsSnapshot.forEach((docSnap) => {
-            const data = docSnap.data();
-            if (data.picName === userName) {
-            allRequestOps.push({
+        console.log('Fetching request ops for user:', userName);
+        
+        // Optimasi: Ambil hanya tasks yang diperlukan dengan query yang lebih efisien
+        const tasksQuery = query(
+          collection(db, 'tasks'),
+          where('pic', '==', userName)
+        );
+        
+        const tasksSnapshot = await getDocs(tasksQuery);
+        console.log('Found tasks:', tasksSnapshot.size);
+        
+        // Gunakan Promise.all untuk fetch request_ops secara paralel
+        const requestOpsPromises = tasksSnapshot.docs.map(async (taskDoc) => {
+          const requestOpsRef = collection(db, 'tasks', taskDoc.id, 'request_ops');
+          const requestOpsSnapshot = await getDocs(requestOpsRef);
+          
+          return requestOpsSnapshot.docs.map(doc => {
+            const data = doc.data();
+            return {
               date: data.date || '',
               activityId: data.activityId || '',
               siteName: data.siteName || '',
@@ -214,13 +306,20 @@ const RequestOpsPage = () => {
               requestType: data.requestType || '',
               nota: data.nota || false,
               notaUrl: data.notaUrl || '',
-                status_ops: data.status_ops || '', // Added status_ops
+              status_ops: data.status_ops || '',
               bank: data.bank || '',
               bankNo: data.bankNo || '',
-            });
-            }
+            };
           });
-        }
+        });
+        
+        // Tunggu semua promise selesai dan flatten array
+        const allRequestOpsArrays = await Promise.all(requestOpsPromises);
+        const allRequestOps = allRequestOpsArrays.flat();
+        
+        // Sort berdasarkan activityId secara descending (data terbaru di atas)
+        allRequestOps.sort((a, b) => b.activityId.localeCompare(a.activityId));
+        
         setHistoryData(allRequestOps);
       } catch (error) {
         console.error('Error fetching request_ops:', error);
@@ -229,7 +328,8 @@ const RequestOpsPage = () => {
       }
     };
     if (userName) fetchAllRequestOps();
-  }, [userName]);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  }, [userName as any]);
 
   // Opsi division otomatis terisi sesuai user login
   useEffect(() => {
@@ -302,98 +402,135 @@ const RequestOpsPage = () => {
     setSubmitError('');
     setSubmitSuccess('');
     setSubmitLoading(true);
-    // Validasi field wajib
+  // Validasi field wajib
     if (!form.date || !form.city || !form.siteName || !form.requestType || !form.detailPlan || !opsValue) {
       setSubmitError('Semua field wajib diisi: Date, City, Site Name, Request Type, Detail Plan, dan OPS.');
       setSubmitLoading(false);
       return;
     }
+    
     try {
-      // Query dokumen tasks dengan siteName dan division
-      const q = query(
-        collection(db, 'tasks'),
-        where('siteName', '==', form.siteName),
-        where('division', '==', form.division)
-      );
-      const querySnapshot = await getDocs(q);
-      if (querySnapshot.empty) {
-        setSubmitError('Task tidak ditemukan. Pastikan Site Name dan Division sudah benar.');
-        setSubmitLoading(false);
-        return;
+      // Optimasi: Gunakan cache untuk task document jika tersedia
+      const taskCacheKey = `task_${form.siteName}_${form.division}`;
+      let taskDoc;
+      
+      const cachedTaskId = sessionStorage.getItem(taskCacheKey);
+      if (cachedTaskId) {
+        // Gunakan cached task ID
+        taskDoc = { id: cachedTaskId };
+      } else {
+        // Query dokumen tasks dengan siteName dan division
+        const q = query(
+          collection(db, 'tasks'),
+          where('siteName', '==', form.siteName),
+          where('division', '==', form.division)
+        );
+        const querySnapshot = await getDocs(q);
+        if (querySnapshot.empty) {
+          setSubmitError('Task tidak ditemukan. Pastikan Site Name dan Division sudah benar.');
+          setSubmitLoading(false);
+          return;
+        }
+        // Ambil dokumen pertama yang cocok dan cache ID-nya
+        taskDoc = querySnapshot.docs[0];
+        sessionStorage.setItem(taskCacheKey, taskDoc.id);
       }
-      // Ambil dokumen pertama yang cocok
-      const taskDoc = querySnapshot.docs[0];
 
-      // --- Generate activityId sesuai template ---
+      // --- Generate activityId yang lebih sederhana dan cepat ---
       // 1. 3 huruf awal city, uppercase, tanpa spasi
       const cityCode = (form.city.replace(/\s+/g, '').substring(0, 3) || 'XXX').toUpperCase();
-      // 2. Ambil tanggal, bulan, tahun dari waktu submit (bukan dari form.date)
+      // 2. Ambil tanggal, bulan, tahun dari waktu submit
       const now = new Date();
       const day = String(now.getDate()).padStart(2, '0');
       const month = String(now.getMonth() + 1).padStart(2, '0');
       const year = String(now.getFullYear());
-      // 3. Hitung total dokumen di bulan & tahun yang sama (reset tiap bulan)
-      const rpmSnapshotAll = await getDocs(collection(db, 'request_ops_rpm'));
-      const tasksSnapshotAll = await getDocs(collection(db, 'tasks'));
-      function isSameMonthYear(ts: any) {
-        if (!ts) return false;
-        if (typeof ts === 'object' && typeof ts.toDate === 'function') {
-          const d = ts.toDate();
-          return d.getMonth() + 1 === Number(month) && d.getFullYear() === Number(year);
-        }
-        try {
-          const d = new Date(ts);
-          if (isNaN(d.getTime())) return false;
-          return d.getMonth() + 1 === Number(month) && d.getFullYear() === Number(year);
-        } catch {
-          return false;
-        }
-      }
-      let totalCount = 0;
-      rpmSnapshotAll.forEach(docSnap => {
-        const data = docSnap.data();
-        if (isSameMonthYear(data.createdAt)) totalCount++;
-      });
-      for (const taskDocAll of tasksSnapshotAll.docs) {
-        const requestOpsSnapshot = await getDocs(collection(db, 'tasks', taskDocAll.id, 'request_ops'));
-        requestOpsSnapshot.forEach(docSnap => {
-          const data = docSnap.data();
-          if (isSameMonthYear(data.createdAt)) totalCount++;
-        });
-      }
-      const orderNum = (totalCount + 1).toString().padStart(3, '0');
+      // 3. Gunakan timestamp untuk memastikan uniqueness (lebih cepat dari counting)
+      const timestamp = now.getTime().toString().slice(-3); // 3 digit terakhir dari timestamp
       // 4. Gabungkan
-      const activityId = `EZA${cityCode}${day}${month}${year}${orderNum}`;
+      const activityId = `EZA${cityCode}${day}${month}${year}${timestamp}`;
       // --- End generate activityId ---
 
-      // Ambil bank dan bankNo dari collection users
+      // Optimasi: Fetch bank dan bankNo menggunakan cache
       let bank = '';
       let bankNo = '';
-      if (form.picName) {
+      const userCacheKey = `user_${form.picName}`;
+      const cachedUserData = sessionStorage.getItem(userCacheKey);
+      
+      if (cachedUserData) {
+        const userData = JSON.parse(cachedUserData);
+        bank = userData.bank || '';
+        bankNo = userData.bankNo || '';
+      } else if (form.picName) {
         const usersQuery = query(collection(db, 'users'), where('name', '==', form.picName));
         const usersSnapshot = await getDocs(usersQuery);
         if (!usersSnapshot.empty) {
           const userData = usersSnapshot.docs[0].data();
           bank = userData.bank || '';
           bankNo = userData.bankNo || '';
+          // Cache user data untuk penggunaan selanjutnya
+          sessionStorage.setItem(userCacheKey, JSON.stringify({ bank, bankNo }));
         }
       }
 
-      // Tambahkan data ke subcollection request_ops
+      // Optimasi: Upload file dan save data secara paralel
       let notaUrl = '';
       let nota = false;
+      
+      // Prepare data untuk save
+      const requestData = {
+        date: form.date,
+        activityId,
+        siteName: form.siteName,
+        city: form.city,
+        division: form.division,
+        detailPlan: form.detailPlan,
+        picName: form.picName,
+        ops: opsValue,
+        requestType: form.requestType,
+        nota: false, // Will be updated if file exists
+        notaUrl: '', // Will be updated if file exists
+        status_ops: 'pending_rpm',
+        createdAt: serverTimestamp(),
+        bank,
+        bankNo,
+      };
+
+      // Jika ada file, upload secara paralel dengan save data
       if (fileNota) {
-        const storage = getStorage();
-        const storageRef = ref(storage, `request_ops/${activityId}_${fileNota.name}`);
-        await uploadBytes(storageRef, fileNota);
-        notaUrl = await getDownloadURL(storageRef);
-        nota = true;
+        try {
+          const storage = getStorage();
+          const storageRef = ref(storage, `request_ops/${activityId}_${fileNota.name}`);
+          
+          // Upload file dan save data secara paralel
+          const [uploadResult] = await Promise.all([
+            uploadBytes(storageRef, fileNota),
+            setDoc(doc(collection(db, 'tasks', taskDoc.id, 'request_ops'), activityId), requestData)
+          ]);
+          
+          // Setelah upload selesai, update document dengan URL
+          notaUrl = await getDownloadURL(uploadResult.ref);
+          nota = true;
+          
+          // Update document dengan nota URL
+          await setDoc(doc(collection(db, 'tasks', taskDoc.id, 'request_ops'), activityId), {
+            ...requestData,
+            nota: true,
+            notaUrl
+          }, { merge: true });
+          
+        } catch (uploadError) {
+          console.error('Error uploading file:', uploadError);
+          // Jika upload gagal, tetap save data tanpa nota
+          await setDoc(doc(collection(db, 'tasks', taskDoc.id, 'request_ops'), activityId), requestData);
+        }
       } else {
-        nota = false;
-        notaUrl = '';
+        // Jika tidak ada file, langsung save data
+        await setDoc(doc(collection(db, 'tasks', taskDoc.id, 'request_ops'), activityId), requestData);
       }
-      const requestOpsRef = collection(db, 'tasks', taskDoc.id, 'request_ops');
-      await setDoc(doc(requestOpsRef, activityId), {
+      setSubmitSuccess('Request OPS berhasil disimpan!');
+      
+      // Optimasi: Tambahkan data baru ke state yang ada tanpa refresh semua data
+      const newRequestOps: HistoryData = {
         date: form.date,
         activityId,
         siteName: form.siteName,
@@ -406,43 +543,19 @@ const RequestOpsPage = () => {
         nota,
         notaUrl,
         status_ops: 'pending_rpm',
-        createdAt: serverTimestamp(),
         bank,
         bankNo,
-      });
-      setSubmitSuccess('Request OPS berhasil disimpan!');
-      // Refresh tabel history
-      const tasksSnapshot = await getDocs(collection(db, 'tasks'));
-      let allRequestOps: HistoryData[] = [];
-      for (const taskDoc of tasksSnapshot.docs) {
-        const requestOpsSnapshot = await getDocs(collection(db, 'tasks', taskDoc.id, 'request_ops'));
-        requestOpsSnapshot.forEach((docSnap) => {
-          const data = docSnap.data();
-          allRequestOps.push({
-            date: data.date || '',
-            activityId: data.activityId || '',
-            siteName: data.siteName || '',
-            city: data.city || '',
-            division: data.division || '',
-            detailPlan: data.detailPlan || '',
-            picName: data.picName || '',
-            ops: data.ops || '',
-            requestType: data.requestType || '',
-            nota: data.nota || false,
-            notaUrl: data.notaUrl || '',
-            status_ops: data.status_ops || '', // Added status_ops
-            bank: data.bank || '',
-            bankNo: data.bankNo || '',
-          });
-        });
-      }
-      setHistoryData(allRequestOps);
+      };
+      
+      // Tambahkan data baru ke array yang ada (prepend untuk menampilkan data terbaru di atas)
+      setHistoryData(prevData => [newRequestOps, ...prevData]);
+      // Reset form setelah berhasil submit
       setForm({
         date: '',
         city: '',
-        division: '',
+        division: userDivision, // Pertahankan division user
         siteName: '',
-        picName: '',
+        picName: userName, // Pertahankan picName user
         requestType: '',
         detailPlan: '',
         ops: '',
@@ -452,6 +565,7 @@ const RequestOpsPage = () => {
       setRequireReceipt(false);
       setFileNota(null);
       setNotaPreview('');
+      setSiteNameSearch(''); // Reset search
     } catch (error) {
       setSubmitError('Gagal menyimpan request OPS.');
       console.error(error);
@@ -507,67 +621,71 @@ const RequestOpsPage = () => {
           </div>
           
           {/* Form Section */}
-          <form className="bg-white p-6 mb-8" onSubmit={handleSubmit}>
-            <div className="grid grid-cols-1 md:grid-cols-2 text-black gap-x-12 gap-y-6">
+          <form className="bg-white p-6 mb-4" onSubmit={handleSubmit}>
+            <div className="grid grid-cols-1 md:grid-cols-2 text-black gap-x-8 gap-y-4">
               {/* Left Column */}
-              <div>
+              <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">Date</label>
+                  <label className="block text-sm font-bold text-gray-700 mb-1">Date</label>
                   <input
                     type="date"
                     name="date"
                     value={form.date}
                     onChange={handleFormChange}
-                    className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                    className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 text-sm"
                   />
                 </div>
-                <div className="mt-6">
-                  <label className="block text-sm font-bold text-gray-700 mb-2">City</label>
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-1">City</label>
                   <select
                     name="city"
                     value={form.city}
                     onChange={handleFormChange}
-                    className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 bg-white"
+                    className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 bg-white text-sm"
                   >
                     <option value="">--City--</option>
-                    {cityOptions.map((city) => (
-                      <option key={city} value={city}>{city}</option>
-                    ))}
+                    {cityOptions && cityOptions.length > 0 ? (
+                      cityOptions.map((city) => (
+                        <option key={city} value={city}>{city}</option>
+                      ))
+                    ) : (
+                      <option value="" disabled>No cities available</option>
+                    )}
                   </select>
                 </div>
-                <div className="mt-6">
-                  <label className="block text-sm font-bold text-gray-700 mb-2">Division</label>
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-1">Division</label>
                   <input
                     type="text"
                     name="division"
                     value={form.division}
                     readOnly
-                    className="w-full p-2 border border-gray-300 rounded-md bg-gray-100 text-gray-700"
+                    className="w-full p-2 border border-gray-300 rounded-md bg-gray-100 text-gray-700 text-sm"
                   />
                 </div>
-                <div className="mt-6">
-                  <label className="block text-sm font-bold text-gray-700 mb-2">PIC/RPM</label>
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-1">PIC/RPM</label>
                   <input
                     type="text"
                     name="picName"
                     value={form.picName}
                     readOnly
-                    className="w-full p-2 border border-gray-300 rounded-md bg-gray-100 text-gray-700"
+                    className="w-full p-2 border border-gray-300 rounded-md bg-gray-100 text-gray-700 text-sm"
                   />
                 </div>
-                <div className="mt-6">
+                <div>
                   <label htmlFor="require-receipt" className="flex items-center cursor-pointer">
                     <span className="block text-sm font-bold text-gray-700 mr-4">Require Receipt</span>
                     <div className="relative">
                         <input id="require-receipt" type="checkbox" className="sr-only" checked={requireReceipt} onChange={() => setRequireReceipt(!requireReceipt)} />
-                        <div className={`block w-14 h-8 rounded-full transition ${requireReceipt ? 'bg-blue-900' : 'bg-gray-300'}`}></div>
-                        <div className={`dot absolute left-1 top-1 bg-white w-6 h-6 rounded-full transition-transform ${requireReceipt ? 'transform translate-x-6' : ''}`}></div>
+                        <div className={`block w-12 h-6 rounded-full transition ${requireReceipt ? 'bg-blue-900' : 'bg-gray-300'}`}></div>
+                        <div className={`dot absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform ${requireReceipt ? 'transform translate-x-6' : ''}`}></div>
                     </div>
                   </label>
                 </div>
                 {requireReceipt && (
-                  <div className="mt-6">
-                    <label className="flex items-center gap-4 p-4 border-2 border-dashed border-gray-300 rounded-md cursor-pointer hover:bg-gray-50">
+                  <div>
+                    <label className="flex items-center gap-3 p-3 border-2 border-dashed border-gray-300 rounded-md cursor-pointer hover:bg-gray-50">
                       <input
                         type="file"
                         className="hidden"
@@ -575,22 +693,22 @@ const RequestOpsPage = () => {
                         accept="image/*,application/pdf"
                       />
                       <PlusCircleIcon />
-                      <span className="text-gray-500 font-medium">{fileNota ? fileNota.name : 'Tap to upload receipt'}</span>
+                      <span className="text-gray-500 font-medium text-sm">{fileNota ? fileNota.name : 'Tap to upload receipt'}</span>
                     </label>
                     {notaPreview && (
-                      <div className="mt-4">
+                      <div className="mt-3">
                         <h3 className="text-sm font-bold text-gray-700 mb-2">Nota Preview:</h3>
                         {fileNota && fileNota.name.toLowerCase().endsWith('.pdf') ? (
                           <iframe 
                             src={notaPreview} 
-                            className="w-full h-64 border border-gray-300 rounded-md" 
+                            className="w-full h-40 border border-gray-300 rounded-md" 
                             title="Nota Preview"
                           />
                         ) : (
                           <img 
                             src={notaPreview} 
                             alt="Nota Preview" 
-                            className="w-full h-64 object-contain border border-gray-300 rounded-md" 
+                            className="w-full h-40 object-contain border border-gray-300 rounded-md" 
                           />
                         )}
                         <button
@@ -599,7 +717,7 @@ const RequestOpsPage = () => {
                             setFileNota(null);
                             setNotaPreview('');
                           }}
-                          className="mt-2 px-3 py-1 bg-red-500 text-white text-sm rounded hover:bg-red-600"
+                          className="mt-2 px-3 py-1 bg-red-500 text-white text-xs rounded hover:bg-red-600"
                         >
                           Remove File
                         </button>
@@ -610,27 +728,74 @@ const RequestOpsPage = () => {
               </div>
 
               {/* Right Column */}
-              <div>
-                <label className="block text-sm font-bold text-gray-700 mb-2">Site Name</label>
-                <select
-                  name="siteName"
-                  value={form.siteName}
-                  onChange={handleFormChange}
-                  className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 bg-white"
-                  disabled={siteNameOptions.length === 0}
-                >
-                  <option value="">--Site Name--</option>
-                  {siteNameOptions.map((name) => (
-                    <option key={name} value={name}>{name}</option>
-                  ))}
-                </select>
-                <div className="mt-6">
-                  <label className="block text-sm font-bold text-gray-700 mb-2">Request Type</label>
+              <div className="space-y-4">
+                <div className="relative">
+                  <label className="block text-sm font-bold text-gray-700 mb-1">Site Name</label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      name="siteName"
+                      value={siteNameSearch}
+                      onChange={(e) => {
+                        const searchValue = e.target.value;
+                        setSiteNameSearch(searchValue);
+                        setShowSiteNameSuggestions(true);
+                        // Clear form value when searching
+                        if (searchValue !== form.siteName) {
+                          setForm(prev => ({ ...prev, siteName: '' }));
+                        }
+                      }}
+                      onFocus={() => setShowSiteNameSuggestions(true)}
+                      placeholder="Search and select site name..."
+                      className={`w-full p-2 pr-8 border rounded-md focus:ring-blue-500 focus:border-blue-500 bg-white text-sm
+                        ${!siteNameOptions.length ? 'bg-gray-100 cursor-not-allowed' : ''}
+                        ${form.siteName ? 'border-green-500' : 'border-gray-300'}`}
+                      disabled={!siteNameOptions.length}
+                      autoComplete="off"
+                    />
+                    {/* Status indicator */}
+                    <div className="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none">
+                      {form.siteName && (
+                        <svg className="h-4 w-4 text-green-500" fill="none" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" stroke="currentColor">
+                          <path d="M5 13l4 4L19 7"></path>
+                        </svg>
+                      )}
+                    </div>
+                  </div>
+                  
+                  
+                  {/* Dropdown suggestions */}
+                  {showSiteNameSuggestions && siteNameOptions.length > 0 && (
+                    <ul className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-48 overflow-auto">
+                      {filteredSiteNames.length > 0 ? (
+                        filteredSiteNames.map((name) => (
+                          <li
+                            key={name}
+                            className={`px-3 py-2 cursor-pointer hover:bg-blue-50 text-sm ${
+                              form.siteName === name ? 'bg-blue-50 font-semibold' : ''
+                            }`}
+                            onMouseDown={() => {
+                              setForm(prev => ({ ...prev, siteName: name }));
+                              setSiteNameSearch(name);
+                              setShowSiteNameSuggestions(false);
+                            }}
+                          >
+                            {name}
+                          </li>
+                        ))
+                      ) : (
+                        <li className="px-3 py-2 text-gray-500 text-sm">No matching sites found</li>
+                      )}
+                    </ul>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-1">Request Type</label>
                   <select
                     name="requestType"
                     value={form.requestType}
                     onChange={handleFormChange}
-                    className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 bg-white"
+                    className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 bg-white text-sm"
                   >
                     <option value="">--Select Request Type--</option>
                     <option value="Wifi">Wifi</option>
@@ -646,37 +811,34 @@ const RequestOpsPage = () => {
                     <option value="Others">Others</option>
                   </select>
                 </div>
-                <div className="mt-6">
-                  <label className="block text-sm font-bold text-gray-700 mb-2">Detail Plan</label>
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-1">Detail Plan</label>
                   <input
                     type="text"
                     name="detailPlan"
                     value={form.detailPlan}
                     onChange={handleFormChange}
-                    className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                    className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 text-sm"
                   />
                 </div>
-                <div className="mt-6">
-                  {/* Ganti FormInput dengan input terkontrol untuk format mata uang */}
-                  <div>
-                    <label className="block text-sm font-bold text-gray-700 mb-2">OPS</label>
-                    <input
-                      type="text"
-                      placeholder="Enter OPS (IDR)"
-                      className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                      value={opsValue}
-                      onChange={handleOpsChange}
-                    />
-                  </div>
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-1">OPS</label>
+                  <input
+                    type="text"
+                    placeholder="Enter OPS (IDR)"
+                    className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 text-sm"
+                    value={opsValue}
+                    onChange={handleOpsChange}
+                  />
                 </div>
               </div>
             </div>
-            {submitError && <div className="text-red-600 mt-4 text-center">{submitError}</div>}
-            {submitSuccess && <div className="text-green-600 mt-4 text-center">{submitSuccess}</div>}
-            <div className="flex justify-end mt-8">
+            {submitError && <div className="text-red-600 mt-3 text-center text-sm">{submitError}</div>}
+            {submitSuccess && <div className="text-green-600 mt-3 text-center text-sm">{submitSuccess}</div>}
+            <div className="flex justify-end mt-4">
                 <button
                   type="submit"
-                  className="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-10 rounded-md transition-colors disabled:opacity-50"
+                  className="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-8 rounded-md transition-colors disabled:opacity-50"
                   disabled={submitLoading}
                 >
                     {submitLoading ? 'Submitting...' : 'Submit'}
@@ -693,10 +855,12 @@ const RequestOpsPage = () => {
                         type="date"
                         value={filterDate}
                         onChange={e => setFilterDate(e.target.value)}
-                        className="border border-gray-300 rounded-md p-2 text-sm bg-white text-gray-500"
+                        className="border border-gray-300 rounded-md p-2 text-sm bg-white text-gray-700"
                     />
                 </div>
-                <h2 className="text-2xl font-bold text-black mt-4">History OPS</h2>
+                <h2 className="text-2xl font-bold text-black mt-4">
+                  History OPS {filterDate ? `(${filterDate === new Date().toISOString().split('T')[0] ? 'Today' : filterDate})` : '(All)'}
+                </h2>
               </div>
 
               {/* History Table */}

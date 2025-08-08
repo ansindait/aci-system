@@ -23,6 +23,7 @@ interface ApprovalData {
   status_ops: string;
   region: string;
   city: string;
+  rpm?: string; // Add RPM field for debugging
 }
 
 // Edit Modal Component
@@ -231,6 +232,8 @@ const ApprovalOpsPage = () => {
   const [rpmOptions, setRpmOptions] = useState<string[]>([]);
   // HAPUS: const [dateOptions, setDateOptions] = useState<string[]>([]);
 
+
+
   // State untuk value filter terpilih
   const [selectedActivityId, setSelectedActivityId] = useState('');
   const [selectedSiteName, setSelectedSiteName] = useState('');
@@ -240,9 +243,17 @@ const ApprovalOpsPage = () => {
   // Remove selectedDate state
   // const [selectedDate, setSelectedDate] = useState('');
 
+  // State untuk value filter history terpilih
+  const [selectedHistoryStartDate, setSelectedHistoryStartDate] = useState('');
+  const [selectedHistoryEndDate, setSelectedHistoryEndDate] = useState('');
+
   // State untuk data approval dari database
   const [allApprovalData, setAllApprovalData] = useState<ApprovalData[]>([]);
   const [filteredApprovalData, setFilteredApprovalData] = useState<ApprovalData[]>([]);
+
+  // State untuk data history dari database
+  const [allHistoryData, setAllHistoryData] = useState<ApprovalData[]>([]);
+  const [filteredHistoryData, setFilteredHistoryData] = useState<ApprovalData[]>([]);
 
   // State untuk cityOptionsByRegion
   const [cityOptionsByRegion, setCityOptionsByRegion] = useState<{ [region: string]: string[] }>({});
@@ -359,17 +370,42 @@ const ApprovalOpsPage = () => {
 
   // Listener realtime Firestore untuk data dan filter options
   useEffect(() => {
+    if (!currentUser?.name) {
+      console.log('⏳ Waiting for current user data...');
+      return;
+    }
+
+    console.log('🔍 Current user name:', currentUser.name);
+    console.log('🔍 Starting to fetch request_ops data...');
+
     const unsub = onSnapshot(collectionGroup(db, 'request_ops'), async (snapshot) => {
-      const data = await Promise.all(snapshot.docs.map(async doc => {
+      console.log('📊 Total request_ops documents found:', snapshot.docs.length);
+      
+      const data = await Promise.all(snapshot.docs.map(async (doc, index) => {
         const d = doc.data();
+        console.log(`📄 Document ${index + 1}:`, { id: doc.id, data: d });
+        
         // Ambil parent doc (tasks)
         let parentData: DocumentData = {};
         if (doc.ref.parent.parent) {
           const parentSnap = await getDoc(doc.ref.parent.parent);
           if (parentSnap.exists()) {
             parentData = parentSnap.data() || {};
+            console.log(`📄 Parent data for doc ${index + 1}:`, parentData);
           }
         }
+        
+        // Filter data berdasarkan field rpm yang sesuai dengan nama user login
+        const rpmField = d.rpm || parentData.rpm || '';
+        console.log(`🔍 Document ${index + 1} - RPM field: "${rpmField}", Current user: "${currentUser.name}"`);
+        
+        if (rpmField !== currentUser.name) {
+          console.log(`❌ Document ${index + 1} - RPM mismatch, skipping`);
+          return null; // Skip data yang tidak sesuai dengan user login
+        }
+        
+        console.log(`✅ Document ${index + 1} - RPM match, processing`);
+        
         // Mapping field, fallback ke string kosong jika tidak ada
         let date = d.date || (d.createdAt && d.createdAt.toDate ? d.createdAt.toDate().toISOString().slice(0, 10) : (d.createdAt || ''));
         let totalRaw = d.ops !== undefined ? d.ops : (d.total !== undefined ? d.total : '');
@@ -384,7 +420,8 @@ const ApprovalOpsPage = () => {
             totalFormatted = totalRaw;
           }
         }
-        return {
+        
+        const result = {
           id: doc.id,
           parentTaskId: doc.ref.parent.parent ? doc.ref.parent.parent.id : '',
           date: date || '',
@@ -398,12 +435,105 @@ const ApprovalOpsPage = () => {
           status_ops: d.status_ops || '',
           region: parentData.region || '',
           city: parentData.city || '',
+          // Add RPM field for debugging
+          rpm: d.rpm || parentData.rpm || '',
         };
+        
+        console.log(`✅ Processed document ${index + 1}:`, result);
+        return result;
       }));
-      setAllApprovalData(data);
+      
+      // Filter out null values (data yang tidak sesuai dengan user login)
+      const filteredData = data.filter(item => item !== null);
+      console.log('📊 Final filtered data count:', filteredData.length);
+      console.log('📊 Final filtered data:', filteredData);
+      
+      setAllApprovalData(filteredData);
     });
     return () => unsub();
-  }, []);
+  }, [currentUser?.name]);
+
+  // Listener realtime Firestore untuk data history (pending_top, approved_top, done)
+  useEffect(() => {
+    if (!currentUser?.name) {
+      console.log('⏳ Waiting for current user data for history...');
+      return;
+    }
+
+    console.log('🔍 Current user name for history:', currentUser.name);
+    console.log('🔍 Starting to fetch history data...');
+
+    const unsub = onSnapshot(collectionGroup(db, 'request_ops'), async (snapshot) => {
+      console.log('📊 Total request_ops documents found for history:', snapshot.docs.length);
+      
+      const data = await Promise.all(snapshot.docs.map(async (doc, index) => {
+        const d = doc.data();
+        
+        // Ambil parent doc (tasks)
+        let parentData: DocumentData = {};
+        if (doc.ref.parent.parent) {
+          const parentSnap = await getDoc(doc.ref.parent.parent);
+          if (parentSnap.exists()) {
+            parentData = parentSnap.data() || {};
+          }
+        }
+        
+        // Filter data berdasarkan field rpm yang sesuai dengan nama user login
+        const rpmField = d.rpm || parentData.rpm || '';
+        
+        if (rpmField !== currentUser.name) {
+          return null; // Skip data yang tidak sesuai dengan user login
+        }
+        
+        // Filter hanya data dengan status pending_top, approved_top, atau done
+        const validStatuses = ['pending_top', 'approved_top', 'done'];
+        if (!validStatuses.includes(d.status_ops)) {
+          return null; // Skip data yang tidak memiliki status yang valid
+        }
+        
+        // Mapping field, fallback ke string kosong jika tidak ada
+        let date = d.date || (d.createdAt && d.createdAt.toDate ? d.createdAt.toDate().toISOString().slice(0, 10) : (d.createdAt || ''));
+        let totalRaw = d.ops !== undefined ? d.ops : (d.total !== undefined ? d.total : '');
+        let totalFormatted = '';
+        if (typeof totalRaw === 'number') {
+          totalFormatted = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(totalRaw);
+        } else if (typeof totalRaw === 'string' && totalRaw) {
+          const num = Number(totalRaw.replace(/[^\d]/g, ''));
+          if (!isNaN(num) && num > 0) {
+            totalFormatted = new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(num);
+          } else {
+            totalFormatted = totalRaw;
+          }
+        }
+        
+        const result = {
+          id: doc.id,
+          parentTaskId: doc.ref.parent.parent ? doc.ref.parent.parent.id : '',
+          date: date || '',
+          activityId: d.activityId || parentData.activityId || parentData.siteId || '',
+          siteName: d.siteName || parentData.siteName || '',
+          picName: d.picName || parentData.picName || parentData.pic || '',
+          division: d.division || parentData.division || '',
+          detailPlan: d.detailPlan || '',
+          requestType: d.requestType || '',
+          total: totalFormatted,
+          status_ops: d.status_ops || '',
+          region: parentData.region || '',
+          city: parentData.city || '',
+          rpm: d.rpm || parentData.rpm || '',
+        };
+        
+        return result;
+      }));
+      
+      // Filter out null values (data yang tidak sesuai dengan user login atau status)
+      const filteredData = data.filter(item => item !== null);
+      console.log('📊 Final filtered history data count:', filteredData.length);
+      
+      setAllHistoryData(filteredData);
+    });
+    return () => unsub();
+  }, [currentUser?.name]);
 
   // Separate useEffect untuk mengisi filter options dari collection tasks dengan sub collection request_ops
   useEffect(() => {
@@ -514,6 +644,61 @@ const ApprovalOpsPage = () => {
     setFilteredApprovalData(filtered);
   }, [allApprovalData, selectedActivityId, selectedSiteName, selectedCity, selectedPic, selectedRpm]);
 
+  // Separate useEffect untuk mengisi filter options history
+  useEffect(() => {
+    const extractHistoryFilterOptions = () => {
+      console.log('🔄 Extracting history filter options from allHistoryData...');
+      console.log('🔄 Total data in allHistoryData:', allHistoryData.length);
+      
+      // Apply date filters - start with all data and filter progressively
+      let filteredData = allHistoryData;
+      
+      // Filter by Start Date if selected
+      if (selectedHistoryStartDate) {
+        filteredData = filteredData.filter(item => {
+          const itemDate = new Date(item.date);
+          const startDate = new Date(selectedHistoryStartDate);
+          return itemDate >= startDate;
+        });
+      }
+      
+      // Filter by End Date if selected
+      if (selectedHistoryEndDate) {
+        filteredData = filteredData.filter(item => {
+          const itemDate = new Date(item.date);
+          const endDate = new Date(selectedHistoryEndDate);
+          return itemDate <= endDate;
+        });
+      }
+      
+      console.log('🔄 Filtered history data count:', filteredData.length);
+    };
+    
+    extractHistoryFilterOptions();
+  }, [allHistoryData, selectedHistoryStartDate, selectedHistoryEndDate]);
+
+  // Filter data history setiap kali filter berubah atau data berubah
+  useEffect(() => {
+    let filtered = allHistoryData.filter(item => {
+      // Filter by Start Date if selected
+      if (selectedHistoryStartDate) {
+        const itemDate = new Date(item.date);
+        const startDate = new Date(selectedHistoryStartDate);
+        if (itemDate < startDate) return false;
+      }
+      
+      // Filter by End Date if selected
+      if (selectedHistoryEndDate) {
+        const itemDate = new Date(item.date);
+        const endDate = new Date(selectedHistoryEndDate);
+        if (itemDate > endDate) return false;
+      }
+      
+      return true;
+    });
+    setFilteredHistoryData(filtered);
+  }, [allHistoryData, selectedHistoryStartDate, selectedHistoryEndDate]);
+
   // Tambahkan fungsi untuk reset semua filter
   const clearAllFilters = () => {
     setSelectedActivityId('');
@@ -557,6 +742,22 @@ const ApprovalOpsPage = () => {
     setSelectedPic(option ? option.value : '');
     // Reset dependent filters when PIC changes
     setSelectedRpm('');
+  };
+
+  // Handler untuk filter history
+  const clearAllHistoryFilters = () => {
+    setSelectedHistoryStartDate('');
+    setSelectedHistoryEndDate('');
+  };
+
+  // Handle History Start Date change
+  const handleHistoryStartDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSelectedHistoryStartDate(e.target.value);
+  };
+
+  // Handle History End Date change
+  const handleHistoryEndDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSelectedHistoryEndDate(e.target.value);
   };
 
   return (
@@ -689,6 +890,94 @@ const ApprovalOpsPage = () => {
                               {item.status_ops === 'rejected' ? 'Rejected' : 'Reject'}
                             </button>
                           </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+          </div>
+
+          {/* History OPS Section */}
+          <div className="bg-white rounded-lg shadow-sm mb-4">
+              {/* Table Header */}
+              <div className="w-full flex items-center p-3 bg-blue-900 text-white rounded-t-lg">
+                  <h2 className="font-bold text-sm">History OPS</h2>
+              </div>
+
+              {/* Filters for History */}
+              <div className="bg-gray-100 p-4 rounded-lg shadow-sm mb-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {/* Start Date */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
+                    <input
+                      type="date"
+                      value={selectedHistoryStartDate}
+                      onChange={handleHistoryStartDateChange}
+                      className="w-full border border-gray-300 text-black rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  {/* End Date */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">End Date</label>
+                    <input
+                      type="date"
+                      value={selectedHistoryEndDate}
+                      onChange={handleHistoryEndDateChange}
+                      className="w-full border border-gray-300 text-black rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+                <div className="mt-4 flex justify-end">
+                  <button
+                    onClick={clearAllHistoryFilters}
+                    className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-md text-sm font-medium"
+                  >
+                    Clear All Filters
+                  </button>
+                </div>
+              </div>
+
+              {/* Table Content */}
+              <div className="p-4 overflow-x-auto">
+                <table className="w-full text-sm text-left text-gray-600">
+                  <thead className="bg-gray-50 text-gray-500 font-bold uppercase">
+                    <tr>
+                      <th scope="col" className="px-4 py-3">Date</th>
+                      <th scope="col" className="px-4 py-3">Activity ID</th>
+                      <th scope="col" className="px-4 py-3">Site Name</th>
+                      <th scope="col" className="px-4 py-3">PIC Name</th>
+                      <th scope="col" className="px-4 py-3">Division</th>
+                      <th scope="col" className="px-4 py-3">Detail Plan</th>
+                      <th scope="col" className="px-4 py-3">Type Request</th>
+                      <th scope="col" className="px-4 py-3">Total</th>
+                      <th scope="col" className="px-4 py-3">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredHistoryData.map((item, index) => (
+                      <tr key={index} className="border-b border-gray-200 hover:bg-gray-50">
+                        <td className="px-4 py-3">{item.date}</td>
+                        <td className="px-4 py-3">{item.activityId}</td>
+                        <td className="px-4 py-3">{item.siteName}</td>
+                        <td className="px-4 py-3">{item.picName}</td>
+                        <td className="px-4 py-3">{item.division}</td>
+                        <td className="px-4 py-3">{item.detailPlan}</td>
+                        <td className="px-4 py-3">{item.requestType}</td>
+                        <td className="px-4 py-3 font-semibold text-gray-800">{item.total}</td>
+                        <td className="px-4 py-3">
+                          <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
+                            item.status_ops === 'pending_top' ? 'bg-yellow-100 text-yellow-800' :
+                            item.status_ops === 'approved_top' ? 'bg-green-100 text-green-800' :
+                            item.status_ops === 'done' ? 'bg-blue-100 text-blue-800' :
+                            'bg-gray-100 text-gray-800'
+                          }`}>
+                            {item.status_ops === 'pending_top' ? 'Pending TOP' :
+                             item.status_ops === 'approved_top' ? 'Approved TOP' :
+                             item.status_ops === 'done' ? 'Done' :
+                             item.status_ops}
+                          </span>
                         </td>
                       </tr>
                     ))}

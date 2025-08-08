@@ -1,4 +1,4 @@
-"use client";
+  "use client";
 
 import React, { useState, useCallback, useRef, useEffect, Suspense } from "react";
 import { useSearchParams } from 'next/navigation';
@@ -75,6 +75,7 @@ const SitePreviewContent = () => {
   const { activeTab, setActiveTab, isSidebarOpen, setIsSidebarOpen, user } = useSidebar();
   const searchParams = useSearchParams();
   const siteIdParam = searchParams.get('siteId');
+  const siteNameParam = searchParams.get('siteName');
   const divisionParam = searchParams.get('division');
   const validDivisions = ["PERMIT", "SND", "CW", "EL", "Document", "Material"];
   const initialDivision = divisionParam && validDivisions.includes(divisionParam) ? divisionParam : "PERMIT";
@@ -136,6 +137,18 @@ const SitePreviewContent = () => {
   // Add state for total HP calculation
   const [totalHP, setTotalHP] = useState<number>(0);
 
+  // Initialize state from URL parameters
+  useEffect(() => {
+    if (siteNameParam) {
+      setSelectedSiteName(siteNameParam);
+      console.log('Setting selectedSiteName from URL parameter:', siteNameParam);
+    }
+    if (siteIdParam) {
+      setSelectedSiteId(siteIdParam);
+      console.log('Setting selectedSiteId from URL parameter:', siteIdParam);
+    }
+  }, [siteNameParam, siteIdParam]);
+
   // Check mode states
   const [isCheckMode, setIsCheckMode] = useState(false);
   const [checkedSections, setCheckedSections] = useState<string[]>([]);
@@ -164,14 +177,28 @@ const SitePreviewContent = () => {
   };
 
   const handlePassSections = async () => {
-    if (!selectedSiteId || checkedSections.length === 0) return;
+    if ((!selectedSiteId && !selectedSiteName) || checkedSections.length === 0) return;
     
     setIsProcessing(true);
     try {
-      const q = query(collection(db, "tasks"), where("siteId", "==", selectedSiteId), where("division", "==", selectedSectionDivision.toLowerCase()));
+      if (!selectedSiteId && !selectedSiteName) {
+        alert("Pilih site ID atau site name terlebih dahulu!");
+        setIsProcessing(false);
+        return;
+      }
+
+      const tasksRef = collection(db, "tasks");
+      const q = selectedSiteId 
+        ? query(tasksRef, 
+            where("siteId", "==", selectedSiteId), 
+            where("division", "==", selectedSectionDivision.toLowerCase()))
+        : query(tasksRef,
+            where("siteName", "==", selectedSiteName), 
+            where("division", "==", selectedSectionDivision.toLowerCase()));
+      
       const snap = await getDocs(q);
       if (snap.empty) {
-        alert("Data site tidak ditemukan!");
+        alert("Data site tidak ditemukan di tasks! Pastikan site telah memiliki task untuk divisi yang dipilih.");
         setIsProcessing(false);
         return;
       }
@@ -241,7 +268,7 @@ const SitePreviewContent = () => {
   };
 
   const handleSubmitReject = async () => {
-    if (!selectedSiteId || checkedSections.length === 0 || !rejectReason.trim()) return;
+    if ((!selectedSiteId && !selectedSiteName) || checkedSections.length === 0 || !rejectReason.trim()) return;
     
     setIsProcessing(true);
     try {
@@ -1617,20 +1644,57 @@ const SitePreviewContent = () => {
           const currentY = yPosition + row * (imgHeight + 25);
 
           try {
+            // Fetch the image first to handle CORS properly
+            const response = await fetch(file.fileUrl);
+            const blob = await response.blob();
             const img = new Image();
             img.crossOrigin = 'anonymous';
+            
+            // Create object URL from blob
+            const objectUrl = URL.createObjectURL(blob);
+            
             await new Promise((resolve, reject) => {
               img.onload = resolve;
-              img.onerror = () => {
+              img.onerror = (error) => {
+                console.error('Error loading image:', error);
                 reject(new Error('Image failed to load'));
               };
-              img.src = file.fileUrl;
+              img.src = objectUrl;
             });
+            
+            // Clean up object URL
+            URL.revokeObjectURL(objectUrl);
+            
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
-            canvas.width = img.width;
-            canvas.height = img.height;
-            ctx?.drawImage(img, 0, 0);
+            
+            // Set canvas dimensions based on image aspect ratio
+            const aspectRatio = img.width / img.height;
+            const maxWidth = 1200; // Maximum width to prevent memory issues
+            const maxHeight = 1200;
+            
+            let width = img.width;
+            let height = img.height;
+            
+            if (width > maxWidth) {
+                width = maxWidth;
+                height = width / aspectRatio;
+            }
+            if (height > maxHeight) {
+                height = maxHeight;
+                width = height * aspectRatio;
+            }
+            
+            canvas.width = width;
+            canvas.height = height;
+            
+            // Draw image with white background to prevent transparency issues
+            if (ctx) {
+                ctx.fillStyle = '#FFFFFF';
+                ctx.fillRect(0, 0, width, height);
+                ctx.drawImage(img, 0, 0, width, height);
+            }
+            
             const imgData = canvas.toDataURL('image/jpeg', 0.9);
             pdf.addImage(imgData, 'JPEG', currentX, currentY, imgWidth, imgHeight);
             // Add embedded text overlay with remarks, details, and uploader
@@ -1695,17 +1759,40 @@ const SitePreviewContent = () => {
               }
             });
           } catch (error) {
-            // Placeholder for failed images
-            pdf.setFillColor(240, 240, 240);
+            // Enhanced placeholder for failed images with more details
+            pdf.setFillColor(245, 245, 245);
             pdf.rect(currentX, currentY, imgWidth, imgHeight, 'F');
+            
+            // Add a border
             pdf.setDrawColor(200, 200, 200);
             pdf.setLineWidth(0.5);
             pdf.rect(currentX, currentY, imgWidth, imgHeight, 'S');
-            pdf.setFontSize(8);
-            pdf.setTextColor(150, 150, 150);
-            pdf.setFont('helvetica', 'italic');
-            pdf.text('[Image not available]', currentX + imgWidth/2, currentY + imgHeight/2, { align: 'center' });
-            pdf.text(file.fileName || 'Unknown file', currentX + imgWidth/2, currentY + imgHeight/2 + 8, { align: 'center' });
+            
+            // Add an error icon or pattern
+            pdf.setDrawColor(180, 180, 180);
+            pdf.setLineWidth(0.3);
+            
+            // Draw a simple image icon
+            const iconX = currentX + imgWidth/2 - 10;
+            const iconY = currentY + imgHeight/2 - 15;
+            pdf.rect(iconX, iconY, 20, 16, 'S');
+            pdf.line(iconX + 15, iconY + 4, iconX + 15, iconY + 4); // Small circle for image icon
+            
+            // Add error text
+            pdf.setFontSize(9);
+            pdf.setTextColor(100, 100, 100);
+            pdf.setFont('helvetica', 'bold');
+            pdf.text('Image Not Available', currentX + imgWidth/2, currentY + imgHeight/2 + 10, { align: 'center' });
+            
+            // Add filename if available
+            if (file.fileName) {
+                pdf.setFontSize(8);
+                pdf.setFont('helvetica', 'normal');
+                const truncatedName = file.fileName.length > 30 ? 
+                    file.fileName.substring(0, 27) + '...' : 
+                    file.fileName;
+                pdf.text(truncatedName, currentX + imgWidth/2, currentY + imgHeight/2 + 20, { align: 'center' });
+            }
           }
           imagesOnCurrentPage++;
           // Only add a new page if more images remain, and this is not the last image of the last section

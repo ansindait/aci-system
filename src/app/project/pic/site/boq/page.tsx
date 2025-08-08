@@ -8,6 +8,8 @@ import * as XLSX from "xlsx";
 import { db } from "@/lib/firebase";
 import { collection, getDocs, addDoc, query, where, Timestamp } from "firebase/firestore";
 import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
+import { useEffect } from "react";
+import Pagination from "@/app/components/Pagination";
 
 // Define types for table data
 interface BOQItem {
@@ -34,7 +36,7 @@ const BOQDetailsPage = () => {
 
   // Modal state for BOQ details
   const [isBOQModalOpen, setIsBOQModalOpen] = useState(false);
-  const [selectedSiteId, setSelectedSiteId] = useState<string | null>(null);
+  const [selectedSiteName, setSelectedSiteName] = useState<string | null>(null);
 
   // Tambahan state untuk jenis BOQ dan hasil parsing excel
   const [boqType, setBoqType] = useState("");
@@ -199,7 +201,7 @@ const BOQDetailsPage = () => {
       // Kolom N = index 13, Kolom D = index 3
       const parsed = dataRows
         .map((row) => ({
-          materialName: row[14] || "", // kolom O
+          materialName: row[1] || "", // kolom B
           materialCode: row[13] || "",
           beforeDrmBoq: boqType === "Before DRM BOQ" ? row[3] || "" : "",
           afterDrmBoq: boqType === "After DRM BOQ" ? row[3] || "" : "",
@@ -352,6 +354,43 @@ const BOQDetailsPage = () => {
   // State filter city untuk tabel bawah
   const [filterCity, setFilterCity] = useState<string>("");
   const [searchSiteName, setSearchSiteName] = useState<string>("");
+  const [showSiteDropdown, setShowSiteDropdown] = useState(false);
+  
+  // Pagination state and logic
+  const ITEMS_PER_PAGE = 25;
+  const [currentPage, setCurrentPage] = useState(1);
+  
+  // Add click outside handler for site dropdown
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      if (showSiteDropdown && !target.closest('.site-dropdown-container')) {
+        setShowSiteDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showSiteDropdown]);
+
+  // Filter and paginate table data
+  const filteredAndPaginatedData = React.useMemo(() => {
+    const filtered = mergedBOQFiles
+      .filter(item => (!filterCity || item.city === filterCity) && 
+                     (!searchSiteName || item.siteName.toLowerCase().includes(searchSiteName.toLowerCase())));
+    
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    const endIndex = startIndex + ITEMS_PER_PAGE;
+    return filtered.slice(startIndex, endIndex);
+  }, [mergedBOQFiles, filterCity, searchSiteName, currentPage]);
+
+  const totalPages = React.useMemo(() => {
+    const filtered = mergedBOQFiles
+      .filter(item => (!filterCity || item.city === filterCity) && 
+                     (!searchSiteName || item.siteName.toLowerCase().includes(searchSiteName.toLowerCase())));
+    return Math.ceil(filtered.length / ITEMS_PER_PAGE);
+  }, [mergedBOQFiles, filterCity, searchSiteName]);
 
   return (
     <div className="flex h-screen bg-gray-100 font-sans">
@@ -401,17 +440,36 @@ const BOQDetailsPage = () => {
               </div>
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">Site Name</label>
-                <select
-                  value={siteIdSiteName}
-                  onChange={e => setSiteIdSiteName(e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-4 py-3 text-base focus:ring-2 focus:ring-blue-500 text-black"
-                  disabled={!city}
-                >
-                  <option value="">Pilih Site Name</option>
-                  {filteredSites.map((s:any) => (
-                    <option key={s.siteName} value={s.siteName}>{s.siteName}</option>
-                  ))}
-                </select>
+                <div className="relative site-dropdown-container">
+                  <input
+                    type="text"
+                    value={siteIdSiteName}
+                    onChange={e => setSiteIdSiteName(e.target.value)}
+                    onFocus={() => setShowSiteDropdown(true)}
+                    className="w-full border border-gray-300 rounded-lg px-4 py-3 text-base focus:ring-2 focus:ring-blue-500 text-black"
+                    placeholder={city ? "Search Site Name..." : "Select City first"}
+                    disabled={!city}
+                  />
+                  {showSiteDropdown && city && (
+                    <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                      {filteredSites
+                        .filter((s:any) => s.siteName.toLowerCase().includes(siteIdSiteName.toLowerCase()))
+                        .map((s:any) => (
+                          <div
+                            key={s.siteName}
+                            className="px-4 py-2 hover:bg-gray-100 cursor-pointer text-black"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSiteIdSiteName(s.siteName);
+                              setShowSiteDropdown(false);
+                            }}
+                          >
+                            {s.siteName}
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </div>
               </div>
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">DRM HP</label>
@@ -584,11 +642,9 @@ const BOQDetailsPage = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200 bg-white">
-                  {mergedBOQFiles
-                    .filter(item => (!filterCity || item.city === filterCity) && (!searchSiteName || item.siteName.toLowerCase().includes(searchSiteName.toLowerCase())))
-                    .map((item, idx) => (
+                  {filteredAndPaginatedData.map((item, idx) => (
                     <tr key={item.siteName + item.city} className={`${idx % 2 === 0 ? "bg-white" : "bg-gray-50"} border-b`}>
-                      <td className="p-2 text-center border border-gray-300 text-black">{idx + 1}</td>
+                      <td className="p-2 text-center border border-gray-300 text-black">{((currentPage - 1) * ITEMS_PER_PAGE) + idx + 1}</td>
                       <td className="p-2 text-center border border-gray-300 text-black">{item.city}</td>
                       <td className="p-2 text-center border border-gray-300 text-black">{item.siteName}</td>
                       <td className="p-2 text-center border border-gray-300 text-black">{item.drmHp}</td>
@@ -683,6 +739,16 @@ const BOQDetailsPage = () => {
                 </tbody>
               </table>
             </div>
+            {/* Pagination */}
+            <div className="mt-4">
+              <Pagination
+                data={mergedBOQFiles.filter(item => (!filterCity || item.city === filterCity) && 
+                     (!searchSiteName || item.siteName.toLowerCase().includes(searchSiteName.toLowerCase())))}
+                currentPage={currentPage}
+                onPageChange={setCurrentPage}
+                itemsPerPage={ITEMS_PER_PAGE}
+              />
+            </div>
             {/* Modal detail BOQ status */}
             {openDetail && (
               <div
@@ -750,14 +816,7 @@ const BOQDetailsPage = () => {
             )}
           </div>
         </div>
-        {/* BOQ Details Modal */}
-        {selectedSiteId && (
-          <BOQDetailsModal
-            isOpen={isBOQModalOpen}
-            onClose={() => setIsBOQModalOpen(false)}
-            siteId={selectedSiteId}
-          />
-        )}
+
         {/* Modal logs BOQ */}
         {logsModal && (
           <div className="fixed inset-0 z-50 flex items-stretch justify-center bg-white bg-opacity-30 backdrop-blur-sm" onClick={handleCloseLogs}>

@@ -19,8 +19,8 @@ const ChevronDownIcon = (props: React.SVGProps<SVGSVGElement>) => (
 interface OpenSectionsState {
   permit: boolean;
   snd: boolean;
-  civilWork: boolean;
-  elJointer: boolean;
+  cw: boolean;
+  el: boolean;
   document: boolean;
   rpm: boolean;
 }
@@ -193,16 +193,16 @@ const OpsDetailsPage = () => {
   const [openSections, setOpenSections] = useState<OpenSectionsState>({
     permit: true,
     snd: false,
-    civilWork: false,
-    elJointer: false,
+    cw: false,
+    el: false,
     document: false,
     rpm: false,
   });
   const [opsData, setOpsData] = useState({
     permit: [] as TableData[],
     snd: [] as TableData[],
-    civilWork: [] as TableData[],
-    elJointer: [] as TableData[],
+    cw: [] as TableData[],
+    el: [] as TableData[],
     document: [] as TableData[],
     rpm: [] as TableData[],
   });
@@ -223,65 +223,24 @@ const OpsDetailsPage = () => {
   useEffect(() => {
     const fetchAllRequestOps = async () => {
       setLoading(true);
-      const tasksSnapshot = await getDocs(collection(db, 'tasks'));
-      const allOps = {
-        permit: [] as TableData[],
-        snd: [] as TableData[],
-        civilWork: [] as TableData[],
-        elJointer: [] as TableData[],
-        document: [] as TableData[],
-        rpm: [] as TableData[],
-      };
-      const allRequestOpsArr: any[] = [];
-      for (const taskDoc of tasksSnapshot.docs) {
-        const taskData = taskDoc.data();
-        // request_ops
-        const requestOpsRef = collection(doc(db, 'tasks', taskDoc.id), 'request_ops');
-        const requestOpsSnapshot = await getDocs(requestOpsRef);
-        requestOpsSnapshot.forEach((docSnap) => {
-          const data = docSnap.data();
-          if (data.status_ops === 'approved_top' || data.status_ops === 'done') {
-            allRequestOpsArr.push({
-              ...data,
-              requestType: (data.requestType || '').toUpperCase(),
-              pic: data.picName || data.pic || '-',
-              parent: {
-                rpm: taskData.rpm || '',
-                siteId: taskData.siteId || '',
-                region: taskData.region || '',
-                city: taskData.city || '',
-                siteName: taskData.siteName || '',
-                date: data.date || '',
-                division: (data.division || '').toLowerCase(),
-              },
-              division: (data.division || '').toLowerCase(),
-            });
-          }
-        });
-        // request_ops_rpm
-        const requestOpsRpmRef = collection(doc(db, 'tasks', taskDoc.id), 'request_ops_rpm');
-        const requestOpsRpmSnapshot = await getDocs(requestOpsRpmRef);
-        requestOpsRpmSnapshot.forEach((docSnap) => {
-          const data = docSnap.data();
-          if (data.status_ops === 'approved_top' || data.status_ops === 'done') {
-            allRequestOpsArr.push({
-              ...data,
-              requestType: (data.requestType || '').toUpperCase(),
-              pic: data.picName || data.pic || '-',
-              parent: {
-                rpm: taskData.rpm || '',
-                siteId: taskData.siteId || '',
-                region: taskData.region || '',
-                city: taskData.city || '',
-                siteName: taskData.siteName || '',
-                date: data.date || '',
-                division: (data.division || '').toLowerCase(),
-              },
-              division: (data.division || '').toLowerCase(),
-            });
-          }
-        });
-        // request_ops_rpm root
+      try {
+        const allRequestOpsArr: any[] = [];
+        
+        // 1. Fetch all tasks data first
+        const tasksSnapshot = await getDocs(collection(db, 'tasks'));
+        const tasksData = tasksSnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        })) as Array<{
+          id: string;
+          rpm?: string;
+          siteId?: string;
+          region?: string;
+          city?: string;
+          siteName?: string;
+        }>;
+        
+        // 2. Fetch all request_ops_rpm from root collection (most efficient)
         const requestOpsRpmRootSnapshot = await getDocs(collection(db, 'request_ops_rpm'));
         requestOpsRpmRootSnapshot.forEach((docSnap) => {
           const data = docSnap.data();
@@ -303,18 +262,100 @@ const OpsDetailsPage = () => {
             });
           }
         });
+        
+        // 3. Fetch request_ops from tasks subcollections (only if needed)
+        // Use Promise.all to fetch all subcollections in parallel
+        const subcollectionPromises = tasksData.map(async (taskData) => {
+          const requestOpsRef = collection(doc(db, 'tasks', taskData.id), 'request_ops');
+          const requestOpsSnapshot = await getDocs(requestOpsRef);
+          
+          const requestOpsRpmRef = collection(doc(db, 'tasks', taskData.id), 'request_ops_rpm');
+          const requestOpsRpmSnapshot = await getDocs(requestOpsRpmRef);
+          
+          return {
+            taskData,
+            requestOps: requestOpsSnapshot,
+            requestOpsRpm: requestOpsRpmSnapshot
+          };
+        });
+        
+        const subcollectionResults = await Promise.all(subcollectionPromises);
+        
+        // Process subcollection results
+        subcollectionResults.forEach(({ taskData, requestOps, requestOpsRpm }) => {
+          // Process request_ops
+          requestOps.forEach((docSnap) => {
+            const data = docSnap.data();
+            if (data.status_ops === 'approved_top' || data.status_ops === 'done') {
+              allRequestOpsArr.push({
+                ...data,
+                requestType: (data.requestType || '').toUpperCase(),
+                pic: data.picName || data.pic || '-',
+                parent: {
+                  rpm: taskData.rpm || '',
+                  siteId: taskData.siteId || '',
+                  region: taskData.region || '',
+                  city: taskData.city || '',
+                  siteName: taskData.siteName || '',
+                  date: data.date || '',
+                  division: (data.division || '').toLowerCase(),
+                },
+                division: (data.division || '').toLowerCase(),
+              });
+            }
+          });
+          
+          // Process request_ops_rpm from subcollections
+          requestOpsRpm.forEach((docSnap) => {
+            const data = docSnap.data();
+            if (data.status_ops === 'approved_top' || data.status_ops === 'done') {
+              allRequestOpsArr.push({
+                ...data,
+                requestType: (data.requestType || '').toUpperCase(),
+                pic: data.picName || data.pic || '-',
+                parent: {
+                  rpm: taskData.rpm || '',
+                  siteId: taskData.siteId || '',
+                  region: taskData.region || '',
+                  city: taskData.city || '',
+                  siteName: taskData.siteName || '',
+                  date: data.date || '',
+                  division: (data.division || '').toLowerCase(),
+                },
+                division: (data.division || '').toLowerCase(),
+              });
+            }
+          });
+        });
+        
+        // Initialize empty ops data structure
+        const allOps = {
+          permit: [] as TableData[],
+          snd: [] as TableData[],
+          cw: [] as TableData[],
+          el: [] as TableData[],
+          document: [] as TableData[],
+          rpm: [] as TableData[],
+        };
+        
+        setOpsData(allOps);
+        
+        // Deduplicate data
+        const uniqueMap = new Map();
+        allRequestOpsArr.forEach(item => {
+          const key = `${item.activityId || ''}_${item.parent?.siteId || ''}_${item.date || item.parent?.date || ''}`;
+          uniqueMap.set(key, item);
+        });
+        const uniqueRequestOpsArr = Array.from(uniqueMap.values());
+        
+        setAllRequestOps(uniqueRequestOpsArr);
+      } catch (error) {
+        console.error('Error fetching OPS data:', error);
+      } finally {
+        setLoading(false);
       }
-      setOpsData(allOps);
-      // Setelah mengisi allRequestOpsArr, lakukan de-duplikasi sebelum setAllRequestOps:
-      const uniqueMap = new Map();
-      allRequestOpsArr.forEach(item => {
-        const key = `${item.activityId || ''}_${item.parent?.siteId || ''}_${item.date || item.parent?.date || ''}`;
-        uniqueMap.set(key, item);
-      });
-      const uniqueRequestOpsArr = Array.from(uniqueMap.values());
-      setAllRequestOps(uniqueRequestOpsArr);
-      setLoading(false);
     };
+    
     fetchAllRequestOps();
   }, []);
 
@@ -337,8 +378,8 @@ const OpsDetailsPage = () => {
   const filteredOpsData = {
     permit: filteredRequestOps.filter((item) => item.division === 'permit'),
     snd: filteredRequestOps.filter((item) => item.division === 'snd'),
-    civilWork: filteredRequestOps.filter((item) => item.division === 'civilwork' || item.division === 'civil work'),
-    elJointer: filteredRequestOps.filter((item) => item.division === 'eljointer' || item.division === 'el/jointer'),
+    cw: filteredRequestOps.filter((item) => item.division === 'cw' || item.division === 'cw'),
+    el: filteredRequestOps.filter((item) => item.division === 'el' || item.division === 'el/jointer'),
     document: filteredRequestOps.filter((item) => item.division === 'document'),
     rpm: filteredRequestOps.filter((item) => item.division === 'rpm'),
   };
@@ -346,8 +387,8 @@ const OpsDetailsPage = () => {
   const totalFiltered = [
     ...filteredOpsData.permit,
     ...filteredOpsData.snd,
-    ...filteredOpsData.civilWork,
-    ...filteredOpsData.elJointer,
+    ...filteredOpsData.cw,
+    ...filteredOpsData.el,
     ...filteredOpsData.document,
     ...filteredOpsData.rpm
   ].reduce((sum, item) => {
@@ -380,14 +421,14 @@ const OpsDetailsPage = () => {
     { type: 'Sewa Alat', pic: 'Charlie', date: '12/08/2025', total: '800.000' },
   ];
 
-   // Data for Civil Work Section
+   // Data for cw Section
   const CWData: TableData[] = [
     { type: 'Pengadaan Material', pic: 'Budi', date: '11/08/2025', total: '2.500.000' },
     { type: 'Sewa Alat', pic: 'Charlie', date: '12/08/2025', total: '800.000' },
   ];
 
-  //Data for ElJointer Section
-  const elJointerData: TableData[] = [
+  //Data for el Section
+  const elData: TableData[] = [
     { type: 'Jasa Penyambungan Kabel', pic: 'Dedi', date: '15/08/2025', total: '1.200.000' },
     { type: 'Sewa Alat Splicer', pic: 'Eka', date: '15/08/2025', total: '450.000' },
     { type: 'Pembelian Material Joint', pic: 'Dedi', date: '16/08/2025', total: '780.000' },
@@ -552,13 +593,13 @@ const OpsDetailsPage = () => {
           ) : (
             (Object.keys(openSections) as Array<keyof OpenSectionsState>).map((sectionKey) => {
               const title = sectionKey.replace(/([A-Z])/g, ' $1').replace(/^(.)/, (c) => c.toUpperCase());
-              const formattedTitle = title === 'Snd' ? 'SND' : title === 'El Jointer' ? 'EL/Jointer' : title.replace('Work', ' Work');
+              const formattedTitle = title === 'Snd' ? 'SND' : title === 'el' ? 'EL/Jointer' : title.replace('Work', ' Work');
               // Use filteredOpsData for each section
               let sectionData: TableData[] = [];
               if (sectionKey === 'permit') sectionData = filteredOpsData.permit;
               else if (sectionKey === 'snd') sectionData = filteredOpsData.snd;
-              else if (sectionKey === 'civilWork') sectionData = filteredOpsData.civilWork;
-              else if (sectionKey === 'elJointer') sectionData = filteredOpsData.elJointer;
+              else if (sectionKey === 'cw') sectionData = filteredOpsData.cw;
+              else if (sectionKey === 'el') sectionData = filteredOpsData.el;
               else if (sectionKey === 'document') sectionData = filteredOpsData.document;
               else if (sectionKey === 'rpm') sectionData = filteredOpsData.rpm;
               return (
@@ -573,7 +614,7 @@ const OpsDetailsPage = () => {
                   {openSections[sectionKey] && (
                     <DataTable data={sectionData} />
                   )}
-                  {openSections[sectionKey] && !['permit', 'snd', 'civilWork', 'elJointer', 'document', 'rpm'].includes(sectionKey) && (
+                  {openSections[sectionKey] && !['permit', 'snd', 'cw', 'el', 'document', 'rpm'].includes(sectionKey) && (
                     <div className="p-4">
                       <p>Content for {formattedTitle} goes here...</p>
                     </div>

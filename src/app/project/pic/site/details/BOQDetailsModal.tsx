@@ -7,7 +7,7 @@ import { collection, getDocs, query, where } from "firebase/firestore";
 interface BOQDetailsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  siteId: string;
+  siteName: string;
 }
 
 interface BOQItem {
@@ -29,7 +29,7 @@ interface BOQFileData {
   [key: string]: any;
 }
 
-const BOQDetailsModal: React.FC<BOQDetailsModalProps> = ({ isOpen, onClose, siteId }) => {
+const BOQDetailsModal: React.FC<BOQDetailsModalProps> = ({ isOpen, onClose, siteName }) => {
   const [search, setSearch] = useState("");
   const [boqData, setBoqData] = useState<BOQItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -39,15 +39,16 @@ const BOQDetailsModal: React.FC<BOQDetailsModalProps> = ({ isOpen, onClose, site
   // Fetch BOQ data for the specific site
   useEffect(() => {
     const fetchBOQData = async () => {
-      if (!siteId) return;
+      if (!siteName) return;
       
       setLoading(true);
       try {
-        const q = query(collection(db, "boq_files"), where("siteId", "==", siteId));
+        const q = query(collection(db, "boq_files"), where("siteName", "==", siteName));
         const snapshot = await getDocs(q);
         const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as BOQFileData[];
         
         console.log("Raw BOQ data:", data);
+        console.log("Sample BOQ item structure:", data[0]?.items?.[0]);
         
         // Merge data by siteName (similar to BOQ page logic)
         const mergedData: {[siteName: string]: any} = {};
@@ -72,13 +73,26 @@ const BOQDetailsModal: React.FC<BOQDetailsModalProps> = ({ isOpen, onClose, site
         console.log("Merged data:", mergedData);
         
         const mergedArray = Object.values(mergedData);
+        console.log("Sample merged site data:", mergedArray[0]);
         if (mergedArray.length > 0) {
           const siteData = mergedArray[0]; // Take the first (and should be only) item
           
           // Combine all rows based on materialCode
           const allRows: Record<string, any> = {};
-          ["beforeDrmBoq", "afterDrmBoq", "constDoneBoq", "abdBoq"].forEach((statusKey) => {
-            (siteData[statusKey] || []).forEach((row: any) => {
+          
+          // Process each BOQ type
+          const boqTypes = [
+            { key: "beforeDrmBoq", boqType: "Before DRM BOQ" },
+            { key: "afterDrmBoq", boqType: "After DRM BOQ" },
+            { key: "constDoneBoq", boqType: "Construction Done BOQ" },
+            { key: "abdBoq", boqType: "ABD BOQ" }
+          ];
+          
+          boqTypes.forEach(({ key, boqType }) => {
+            const items = siteData[key] || [];
+            console.log(`Processing ${boqType}:`, items.length, "items");
+            
+            items.forEach((row: any) => {
               const code = row.materialCode || row.materialName;
               if (!allRows[code]) {
                 allRows[code] = {
@@ -90,15 +104,12 @@ const BOQDetailsModal: React.FC<BOQDetailsModalProps> = ({ isOpen, onClose, site
                   abdBoq: "",
                 };
               }
-              // Map the correct field based on statusKey
-              const fieldMap: {[key: string]: string} = {
-                "beforeDrmBoq": "beforeDrmBoq",
-                "afterDrmBoq": "afterDrmBoq", 
-                "constDoneBoq": "constDoneBoq",
-                "abdBoq": "abdBoq"
-              };
-              const fieldName = fieldMap[statusKey] || statusKey;
-              allRows[code][fieldName] = row.quantity || row.qty || row.amount || "";
+              
+              // Try different possible field names for quantity
+              const quantity = row.quantity || row.qty || row.amount || row.afterDrmBoq || row.beforeDrmBoq || row.constDoneBoq || row.abdBoq || "";
+              allRows[code][key] = quantity;
+              
+              console.log(`Setting ${key} for material ${row.materialName} (${row.materialCode}): ${quantity}`);
             });
           });
           
@@ -115,10 +126,10 @@ const BOQDetailsModal: React.FC<BOQDetailsModalProps> = ({ isOpen, onClose, site
       }
     };
 
-    if (isOpen && siteId) {
+    if (isOpen && siteName) {
       fetchBOQData();
     }
-  }, [isOpen, siteId]);
+  }, [isOpen, siteName]);
 
   if (!isOpen) return null;
 
@@ -194,7 +205,7 @@ const BOQDetailsModal: React.FC<BOQDetailsModalProps> = ({ isOpen, onClose, site
         
         <div className="bg-blue-900 text-white rounded-t-xl px-8 py-4 font-bold text-lg flex items-center justify-end mb-0">
           <span className="w-full text-center text-base font-semibold tracking-wide">
-            COMPARE BOQ - {siteId}
+            COMPARE BOQ - {siteName}
           </span>
         </div>
         

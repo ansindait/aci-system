@@ -5,8 +5,10 @@ import Sidebar from '@/app/components/Sidebar'; // Assuming Sidebar component ex
 import * as XLSX from 'xlsx';
 // @ts-ignore
 import { saveAs } from 'file-saver';
-import { collection, getDocs, doc } from 'firebase/firestore';
+import { collection, getDocs, doc, collectionGroup } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { onAuthStateChanged } from 'firebase/auth';
+import { auth } from '@/lib/firebase';
 
 // A placeholder for the ChevronDown icon
 const ChevronDownIcon = (props: React.SVGProps<SVGSVGElement>) => (
@@ -19,8 +21,8 @@ const ChevronDownIcon = (props: React.SVGProps<SVGSVGElement>) => (
 interface OpenSectionsState {
   permit: boolean;
   snd: boolean;
-  civilWork: boolean;
-  elJointer: boolean;
+  cw: boolean;
+  el: boolean;
   document: boolean;
   rpm: boolean;
 }
@@ -193,16 +195,16 @@ const OpsDetailsPage = () => {
   const [openSections, setOpenSections] = useState<OpenSectionsState>({
     permit: true,
     snd: false,
-    civilWork: false,
-    elJointer: false,
+    cw: false,
+    el: false,
     document: false,
     rpm: false,
   });
   const [opsData, setOpsData] = useState({
     permit: [] as TableData[],
     snd: [] as TableData[],
-    civilWork: [] as TableData[],
-    elJointer: [] as TableData[],
+    cw: [] as TableData[],
+    el: [] as TableData[],
     document: [] as TableData[],
     rpm: [] as TableData[],
   });
@@ -218,103 +220,63 @@ const OpsDetailsPage = () => {
   });
   // All request_ops with parent info
   const [allRequestOps, setAllRequestOps] = useState<any[]>([]);
+  const [userRpmName, setUserRpmName] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchAllRequestOps = async () => {
       setLoading(true);
+      // Fetch all tasks for parent mapping
       const tasksSnapshot = await getDocs(collection(db, 'tasks'));
-      const allOps = {
-        permit: [] as TableData[],
-        snd: [] as TableData[],
-        civilWork: [] as TableData[],
-        elJointer: [] as TableData[],
-        document: [] as TableData[],
-        rpm: [] as TableData[],
-      };
-      const allRequestOpsArr: any[] = [];
-      for (const taskDoc of tasksSnapshot.docs) {
-        const taskData = taskDoc.data();
-        // request_ops
-        const requestOpsRef = collection(doc(db, 'tasks', taskDoc.id), 'request_ops');
-        const requestOpsSnapshot = await getDocs(requestOpsRef);
-        requestOpsSnapshot.forEach((docSnap) => {
-          const data = docSnap.data();
-          if (data.status_ops === 'approved_top' || data.status_ops === 'done') {
-            allRequestOpsArr.push({
-              ...data,
-              requestType: (data.requestType || '').toUpperCase(),
-              pic: data.picName || data.pic || '-',
-              parent: {
-                rpm: taskData.rpm || '',
-                siteId: taskData.siteId || '',
-                region: taskData.region || '',
-                city: taskData.city || '',
-                siteName: taskData.siteName || '',
-                date: data.date || '',
-                division: (data.division || '').toLowerCase(),
-              },
-              division: (data.division || '').toLowerCase(),
-            });
-          }
+      const taskParentMap = new Map();
+      tasksSnapshot.docs.forEach(taskDoc => {
+        const data = taskDoc.data();
+        taskParentMap.set(taskDoc.id, {
+          siteId: data.siteId || '',
+          region: data.region || '',
+          city: data.city || '',
+          siteName: data.siteName || '',
+          division: (data.division || '').toLowerCase(),
+          rpm: data.rpm || '',
         });
-        // request_ops_rpm
-        const requestOpsRpmRef = collection(doc(db, 'tasks', taskDoc.id), 'request_ops_rpm');
-        const requestOpsRpmSnapshot = await getDocs(requestOpsRpmRef);
-        requestOpsRpmSnapshot.forEach((docSnap) => {
-          const data = docSnap.data();
-          if (data.status_ops === 'approved_top' || data.status_ops === 'done') {
-            allRequestOpsArr.push({
-              ...data,
-              requestType: (data.requestType || '').toUpperCase(),
-              pic: data.picName || data.pic || '-',
-              parent: {
-                rpm: taskData.rpm || '',
-                siteId: taskData.siteId || '',
-                region: taskData.region || '',
-                city: taskData.city || '',
-                siteName: taskData.siteName || '',
-                date: data.date || '',
-                division: (data.division || '').toLowerCase(),
-              },
-              division: (data.division || '').toLowerCase(),
-            });
-          }
-        });
-        // request_ops_rpm root
-        const requestOpsRpmRootSnapshot = await getDocs(collection(db, 'request_ops_rpm'));
-        requestOpsRpmRootSnapshot.forEach((docSnap) => {
-          const data = docSnap.data();
-          if (data.status_ops === 'approved_top' || data.status_ops === 'done') {
-            allRequestOpsArr.push({
-              ...data,
-              requestType: (data.requestType || '').toUpperCase(),
-              pic: data.picName || data.pic || '-',
-              parent: {
-                rpm: data.rpm || '',
-                siteId: data.siteId || '',
-                region: data.region || '',
-                city: data.city || '',
-                siteName: data.siteName || '',
-                date: data.date || '',
-                division: (data.division || '').toLowerCase(),
-              },
-              division: (data.division || '').toLowerCase(),
-            });
-          }
-        });
-      }
-      setOpsData(allOps);
-      // Setelah mengisi allRequestOpsArr, lakukan de-duplikasi sebelum setAllRequestOps:
-      const uniqueMap = new Map();
-      allRequestOpsArr.forEach(item => {
-        const key = `${item.activityId || ''}_${item.parent?.siteId || ''}_${item.date || item.parent?.date || ''}`;
-        uniqueMap.set(key, item);
       });
-      const uniqueRequestOpsArr = Array.from(uniqueMap.values());
-      setAllRequestOps(uniqueRequestOpsArr);
+      // Fetch all request_ops in one go
+      const requestOpsSnapshot = await getDocs(collectionGroup(db, 'request_ops'));
+      const allRequestOpsArr = requestOpsSnapshot.docs.map(docSnap => {
+        const data = docSnap.data();
+        // Get parent taskId from docSnap.ref.parent.parent.id
+        const parentTaskId = docSnap.ref.parent.parent?.id;
+        const parentInfo = parentTaskId ? taskParentMap.get(parentTaskId) || {} : {};
+        return {
+          ...data,
+          requestType: (data.requestType || '').toUpperCase(),
+          pic: data.picName || data.pic || '-',
+          parent: {
+            ...parentInfo,
+            date: data.date || '',
+            division: (data.division || parentInfo.division || '').toLowerCase(),
+            rpm: data.rpm || parentInfo.rpm || '',
+          },
+          division: (data.division || parentInfo.division || '').toLowerCase(),
+        };
+      });
+      setAllRequestOps(allRequestOpsArr);
       setLoading(false);
     };
     fetchAllRequestOps();
+  }, []);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        const userDocRef = doc(db, 'users', user.uid);
+        const userDoc = await getDocs(collection(db, 'users'));
+        const userData = userDoc.docs.find((docSnap) => docSnap.id === user.uid)?.data();
+        if (userData && userData.name) {
+          setUserRpmName(userData.name.toLowerCase());
+        }
+      }
+    });
+    return () => unsubscribe();
   }, []);
 
   // Filter logic
@@ -330,13 +292,14 @@ const OpsDetailsPage = () => {
         (!date || (item.parent.date || '').includes(date)) &&
         (!pic || (item.pic || '').toLowerCase().includes(pic.toLowerCase()))
       );
-    });
+    })
+    .filter(item => !userRpmName || (item.parent?.rpm && item.parent.rpm.toLowerCase() === userRpmName)); // Filter hanya milik RPM login
   // Group filtered data by division
   const filteredOpsData = {
     permit: filteredRequestOps.filter((item) => item.division === 'permit'),
     snd: filteredRequestOps.filter((item) => item.division === 'snd'),
-    civilWork: filteredRequestOps.filter((item) => item.division === 'civilwork' || item.division === 'civil work'),
-    elJointer: filteredRequestOps.filter((item) => item.division === 'eljointer' || item.division === 'el/jointer'),
+    cw: filteredRequestOps.filter((item) => item.division === 'cw' || item.division === 'cw'),
+    el: filteredRequestOps.filter((item) => item.division === 'el' || item.division === 'el/jointer'),
     document: filteredRequestOps.filter((item) => item.division === 'document'),
     rpm: filteredRequestOps.filter((item) => item.division === 'rpm'),
   };
@@ -344,8 +307,8 @@ const OpsDetailsPage = () => {
   const totalFiltered = [
     ...filteredOpsData.permit,
     ...filteredOpsData.snd,
-    ...filteredOpsData.civilWork,
-    ...filteredOpsData.elJointer,
+    ...filteredOpsData.cw,
+    ...filteredOpsData.el,
     ...filteredOpsData.document,
     ...filteredOpsData.rpm
   ].reduce((sum, item) => {
@@ -378,14 +341,14 @@ const OpsDetailsPage = () => {
     { type: 'Sewa Alat', pic: 'Charlie', date: '12/08/2025', total: '800.000' },
   ];
 
-   // Data for Civil Work Section
+   // Data for cw Section
   const CWData: TableData[] = [
     { type: 'Pengadaan Material', pic: 'Budi', date: '11/08/2025', total: '2.500.000' },
     { type: 'Sewa Alat', pic: 'Charlie', date: '12/08/2025', total: '800.000' },
   ];
 
-  //Data for ElJointer Section
-  const elJointerData: TableData[] = [
+  //Data for el Section
+  const elData: TableData[] = [
     { type: 'Jasa Penyambungan Kabel', pic: 'Dedi', date: '15/08/2025', total: '1.200.000' },
     { type: 'Sewa Alat Splicer', pic: 'Eka', date: '15/08/2025', total: '450.000' },
     { type: 'Pembelian Material Joint', pic: 'Dedi', date: '16/08/2025', total: '780.000' },
@@ -548,8 +511,8 @@ const OpsDetailsPage = () => {
               let sectionData: TableData[] = [];
               if (sectionKey === 'permit') sectionData = filteredOpsData.permit;
               else if (sectionKey === 'snd') sectionData = filteredOpsData.snd;
-              else if (sectionKey === 'civilWork') sectionData = filteredOpsData.civilWork;
-              else if (sectionKey === 'elJointer') sectionData = filteredOpsData.elJointer;
+              else if (sectionKey === 'cw') sectionData = filteredOpsData.cw;
+              else if (sectionKey === 'el') sectionData = filteredOpsData.el;
               else if (sectionKey === 'document') sectionData = filteredOpsData.document;
               else if (sectionKey === 'rpm') sectionData = filteredOpsData.rpm;
               return (
@@ -564,7 +527,7 @@ const OpsDetailsPage = () => {
                   {openSections[sectionKey] && (
                     <DataTable data={sectionData} />
                   )}
-                  {openSections[sectionKey] && !['permit', 'snd', 'civilWork', 'elJointer', 'document', 'rpm'].includes(sectionKey) && (
+                  {openSections[sectionKey] && !['permit', 'snd', 'cw', 'el', 'document', 'rpm'].includes(sectionKey) && (
                     <div className="p-4">
                       <p>Content for {formattedTitle} goes here...</p>
                     </div>

@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { BarChart as RechartsBarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, LabelList } from 'recharts';
-import { Calendar, MapPin, Users, TrendingUp, FileText, Activity, Filter, X, User as UserIcon } from 'lucide-react';
+import { Calendar, MapPin, Users, TrendingUp, FileText, Activity, Filter, X, User as UserIcon, Search } from 'lucide-react';
 import Sidebar from '@/app/components/Sidebar';
 import { useSidebar } from '@/context/SidebarContext';
 import { Tooltip as RechartsTooltip } from 'recharts';
@@ -472,6 +472,11 @@ async function getPermitData(): Promise<Array<{ name: string; value: number; tot
     const snapshot = await getDocs(tasksRef);
     const allTasks = snapshot.docs.map(doc => doc.data());
     
+    // Get sites data for HP calculation
+    const sitesRef = collection(db, "sites");
+    const sitesSnapshot = await getDocs(sitesRef);
+    const sitesData = sitesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[];
+    
     // Total: semua tasks dengan division permit
     const permitTasks = allTasks.filter(task => task.division?.toLowerCase() === 'permit');
     
@@ -668,7 +673,8 @@ async function getPermitData(): Promise<Array<{ name: string; value: number; tot
       if (hasVisitDone && !hasOtherSectionDone) {
         ogActualCount++;
         console.log(`✅ Site ${siteName} counted in OG actual`);
-        // Hitung HP untuk site ini
+        // Hitung HP untuk site ini menggunakan priority logic
+        // Note: This function doesn't have access to sitesData, so we'll use task HP for now
         const siteHP = siteTasks.reduce((sum, task) => {
           if (task.division?.toLowerCase() === 'permit' && task.hp && task.hp > 0) {
             const hpValue = typeof task.hp === 'number' ? task.hp : parseInt(task.hp) || 0;
@@ -702,9 +708,9 @@ async function getPermitData(): Promise<Array<{ name: string; value: number; tot
     console.log('BA OPEN Target Count:', baOpenTargetCount);
     
     return [
-      { name: 'OG', value: ogActualCount, total: ogTargetCount, color: '#b71c1c', isCompleted: false, hp: ogActualHP },
-      { name: 'BA OPEN (Approved)', value: baOpenCount, total: baOpenTargetCount, color: '#bfa600', isCompleted: false, hp: baOpenHP },
-      { name: 'BA REJECT', value: baRejectCount, total: baRejectCount, color: '#039be5', isCompleted: false, hp: baRejectHP },
+      { name: 'OG', value: ogActualCount, total: ogTargetCount, color: '#bfa600', isCompleted: false, hp: ogActualHP },
+      { name: 'BA OPEN (Approved)', value: baOpenCount, total: baOpenTargetCount, color: '#039be5', isCompleted: false, hp: baOpenHP },
+      { name: 'BA REJECT', value: baRejectCount, total: baRejectCount, color: '#b71c1c', isCompleted: false, hp: baRejectHP },
       { name: 'BAK', value: bakCount, total: baOpenCount, color: '#1976d2', isCompleted: false, hp: bakHP },
       { name: 'SND KASAR', value: sndKasarCount, total: baOpenCount, color: '#8e24aa', isCompleted: false, hp: sndKasarHP },
       { name: 'VALIDASI SALES', value: validasiSalesCount, total: baOpenCount, color: '#43a047', isCompleted: false, hp: validasiSalesHP },
@@ -752,22 +758,8 @@ const calculateSNDPieChartData = (siteData: DetailDataItem[], allTasks: any[]) =
     sitesWithPICSnd.forEach(site => {
       const statusSnd = site.statusSnd || "";
       
-      // Calculate HP for this site based on division
-      let hpValue = 0;
-      
-      // Get RFS HP (division = "el") first
-      const rfsTask = allTasks.find(t => t.siteName === site.siteName && t.division?.toLowerCase() === 'el');
-      if (rfsTask && rfsTask.hp) {
-        hpValue = typeof rfsTask.hp === 'number' ? rfsTask.hp : parseInt(rfsTask.hp) || 0;
-      }
-      
-      // If no RFS HP, try DRM HP (division = "snd")
-      if (hpValue === 0) {
-        const drmTask = allTasks.find(t => t.siteName === site.siteName && t.division?.toLowerCase() === 'snd');
-        if (drmTask && drmTask.hp) {
-          hpValue = typeof drmTask.hp === 'number' ? drmTask.hp : parseInt(drmTask.hp) || 0;
-        }
-      }
+      // Calculate HP for this site using priority logic: RFS HP > DRM HP > NTP HP
+      const hpValue = getHpValueByPriority(site);
       
       // Check if statusSnd matches the category
       let matches = false;
@@ -823,30 +815,8 @@ const calculateCWPieChartData = (siteData: DetailDataItem[], allTasks: any[]) =>
   sitesWithPICCw.forEach(site => {
       const statusCw = site.statusCw || "";
     
-    // Calculate HP for this site based on division
-    let hpValue = 0;
-    
-    // Get CW division HP first
-      const cwTask = allTasks.find(t => t.siteName === site.siteName && t.division?.toLowerCase() === 'cw');
-    if (cwTask && cwTask.hp) {
-      hpValue = typeof cwTask.hp === 'number' ? cwTask.hp : parseInt(cwTask.hp) || 0;
-    }
-    
-    // If no CW HP, try EL division
-    if (hpValue === 0) {
-        const elTask = allTasks.find(t => t.siteName === site.siteName && t.division?.toLowerCase() === 'el');
-      if (elTask && elTask.hp) {
-        hpValue = typeof elTask.hp === 'number' ? elTask.hp : parseInt(elTask.hp) || 0;
-      }
-    }
-    
-    // If still no HP, try SND division
-    if (hpValue === 0) {
-        const sndTask = allTasks.find(t => t.siteName === site.siteName && t.division?.toLowerCase() === 'snd');
-      if (sndTask && sndTask.hp) {
-        hpValue = typeof sndTask.hp === 'number' ? sndTask.hp : parseInt(sndTask.hp) || 0;
-      }
-    }
+    // Calculate HP for this site using priority logic: RFS HP > DRM HP > NTP HP
+    const hpValue = getHpValueByPriority(site);
     
       // Check if statusCw matches the category
       let matches = false;
@@ -901,33 +871,11 @@ const calculateEHSPieChartData = (siteData: DetailDataItem[], allTasks: any[]) =
     const statusCw = site.statusCw || "-";
     const siteName = site.siteName;
     
-    // Calculate HP for this site based on division
-    let hpValue = 0;
-    const siteTasks = allTasks.filter(t => t.siteName === siteName);
-    
-    // Get CW division HP first
-    const cwTask = siteTasks.find(t => t.division?.toLowerCase() === 'cw');
-    if (cwTask && cwTask.hp) {
-      hpValue = typeof cwTask.hp === 'number' ? cwTask.hp : parseInt(cwTask.hp) || 0;
-    }
-    
-    // If no CW HP, try EL division
-    if (hpValue === 0) {
-      const elTask = siteTasks.find(t => t.division?.toLowerCase() === 'el');
-      if (elTask && elTask.hp) {
-        hpValue = typeof elTask.hp === 'number' ? elTask.hp : parseInt(elTask.hp) || 0;
-      }
-    }
-    
-    // If still no HP, try SND division
-    if (hpValue === 0) {
-      const sndTask = siteTasks.find(t => t.division?.toLowerCase() === 'snd');
-      if (sndTask && sndTask.hp) {
-        hpValue = typeof sndTask.hp === 'number' ? sndTask.hp : parseInt(sndTask.hp) || 0;
-      }
-    }
+    // Calculate HP for this site using priority logic: RFS HP > DRM HP > NTP HP
+    const hpValue = getHpValueByPriority(site);
     
     // Check for EHS DONE (status cw EHS with status_task = "Done")
+    const siteTasks = allTasks.filter(t => t.siteName === siteName);
     const allSections = siteTasks.flatMap(task => 
       Array.isArray(task.sections) ? task.sections : []
     );
@@ -1440,6 +1388,124 @@ function extractNumericValue(opsString: string): number {
   }
 }
 
+// Helper function to get HP value based on priority: RFS HP > DRM HP > NTP HP
+function getHpValueByPriority(site: DetailDataItem): number {
+  // Debug: Log all available fields for this site
+  console.log(`Site ${site.siteName} - All fields:`, Object.keys(site));
+  
+  // Check for different possible field names for HP
+  const possibleRfsFields = ['rfsHp', 'rfs_hp', 'RFS_HP', 'rfsHp', 'rfs_hp', 'RFSHP'];
+  const possibleDrmFields = ['drmHp', 'drm_hp', 'DRM_HP', 'drmHp', 'drm_hp', 'DRMHP'];
+  const possibleNtpFields = ['ntpHp', 'ntp_hp', 'NTP_HP', 'ntpHp', 'ntp_hp', 'NTPHP'];
+  
+  let rfsHp = site.rfsHp;
+  let drmHp = site.drmHp;
+  let ntpHp = site.ntpHp;
+  
+  // Try to find RFS HP in different field names
+  for (const field of possibleRfsFields) {
+    if (site[field] && site[field] !== "-" && site[field] !== "") {
+      rfsHp = site[field];
+      console.log(`Site ${site.siteName}: Found RFS HP in field '${field}' = ${rfsHp}`);
+      break;
+    }
+  }
+  
+  // Try to find DRM HP in different field names
+  for (const field of possibleDrmFields) {
+    if (site[field] && site[field] !== "-" && site[field] !== "") {
+      drmHp = site[field];
+      console.log(`Site ${site.siteName}: Found DRM HP in field '${field}' = ${drmHp}`);
+      break;
+    }
+  }
+  
+  // Try to find NTP HP in different field names
+  for (const field of possibleNtpFields) {
+    if (site[field] && site[field] !== "-" && site[field] !== "") {
+      ntpHp = site[field];
+      console.log(`Site ${site.siteName}: Found NTP HP in field '${field}' = ${ntpHp}`);
+      break;
+    }
+  }
+  
+  console.log(`Site ${site.siteName} - HP fields:`, {
+    rfsHp: rfsHp,
+    drmHp: drmHp,
+    ntpHp: ntpHp,
+    rfsHpType: typeof rfsHp,
+    drmHpType: typeof drmHp,
+    ntpHpType: typeof ntpHp
+  });
+  
+  // Priority: RFS HP > DRM HP > NTP HP
+  if (rfsHp && rfsHp !== "-" && rfsHp !== "") {
+    const rfsValue = typeof rfsHp === 'number' ? rfsHp : parseInt(rfsHp) || 0;
+    if (rfsValue > 0) {
+      console.log(`Site ${site.siteName}: Using RFS HP = ${rfsValue}`);
+      return rfsValue;
+    }
+  }
+  
+  if (drmHp && drmHp !== "-" && drmHp !== "") {
+    const drmValue = typeof drmHp === 'number' ? drmHp : parseInt(drmHp) || 0;
+    if (drmValue > 0) {
+      console.log(`Site ${site.siteName}: Using DRM HP = ${drmValue}`);
+      return drmValue;
+    }
+  }
+  
+  if (ntpHp && ntpHp !== "-" && ntpHp !== "") {
+    const ntpValue = typeof ntpHp === 'number' ? ntpHp : parseInt(ntpHp) || 0;
+    if (ntpValue > 0) {
+      console.log(`Site ${site.siteName}: Using NTP HP = ${ntpValue}`);
+      return ntpValue;
+    }
+  }
+  
+  console.log(`Site ${site.siteName}: No HP value found (RFS: ${rfsHp}, DRM: ${drmHp}, NTP: ${ntpHp})`);
+  return 0;
+}
+
+// Helper function to get HP value from tasks collection based on priority: RFS HP (EL division) > DRM HP (SND division) > NTP HP (CW division)
+function getHpValueByPriorityFromTasks(siteTasks: any[]): number {
+  // Priority: RFS HP (EL division) > DRM HP (SND division) > NTP HP (CW division)
+  
+  // Get RFS HP from EL division
+  const elTask = siteTasks.find(task => task.division?.toLowerCase() === 'el');
+  if (elTask && elTask.hp && elTask.hp > 0) {
+    const rfsValue = typeof elTask.hp === 'number' ? elTask.hp : parseInt(elTask.hp) || 0;
+    if (rfsValue > 0) {
+      console.log(`Site ${elTask.siteName}: Using RFS HP (EL division) = ${rfsValue}`);
+      return rfsValue;
+    }
+  }
+  
+  // Get DRM HP from SND division
+  const sndTask = siteTasks.find(task => task.division?.toLowerCase() === 'snd');
+  if (sndTask && sndTask.hp && sndTask.hp > 0) {
+    const drmValue = typeof sndTask.hp === 'number' ? sndTask.hp : parseInt(sndTask.hp) || 0;
+    if (drmValue > 0) {
+      console.log(`Site ${sndTask.siteName}: Using DRM HP (SND division) = ${drmValue}`);
+      return drmValue;
+    }
+  }
+  
+  // Get NTP HP from CW division
+  const cwTask = siteTasks.find(task => task.division?.toLowerCase() === 'cw');
+  if (cwTask && cwTask.hp && cwTask.hp > 0) {
+    const ntpValue = typeof cwTask.hp === 'number' ? cwTask.hp : parseInt(cwTask.hp) || 0;
+    if (ntpValue > 0) {
+      console.log(`Site ${cwTask.siteName}: Using NTP HP (CW division) = ${ntpValue}`);
+      return ntpValue;
+    }
+  }
+  
+  const siteName = siteTasks[0]?.siteName || 'Unknown';
+  console.log(`Site ${siteName}: No HP value found in tasks`);
+  return 0;
+}
+
 // --- Definisi Tipe Data ---
 type DetailDataItem = {
   no: number;
@@ -1485,47 +1551,107 @@ type DetailDataItem = {
 // Function to get HP data from Firebase
 async function getHPData(loginName: string): Promise<{ totalHP: number; hpData: Array<{ siteName: string; siteId: string; hp: number; city: string; status: string }> }> {
   try {
+    // Get tasks data from Firebase (HP data is stored in tasks collection)
     const tasksRef = collection(db, "tasks");
-    const snapshot = await getDocs(tasksRef);
-    const allTasks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[];
+    const tasksSnapshot = await getDocs(tasksRef);
+    const tasksData = tasksSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[];
     
-    // Calculate total HP by summing all hp values from tasks collection
-    const totalHP = allTasks.reduce((sum, task) => {
-      let hpValue = 0;
-      
-      // Handle different data types for hp field
-      if (typeof task.hp === 'number') {
-        hpValue = task.hp;
-      } else if (typeof task.hp === 'string') {
-        hpValue = parseInt(task.hp) || 0;
-      } else if (task.hp) {
-        hpValue = Number(task.hp) || 0;
-      }
-      
+    // Debug: Check tasks collection data
+    console.log('Tasks collection data:', {
+      totalDocs: tasksSnapshot.docs.length,
+      sampleDoc: tasksSnapshot.docs[0]?.data(),
+      allFieldNames: tasksSnapshot.docs.length > 0 ? Object.keys(tasksSnapshot.docs[0].data()) : [],
+      tasksWithHp: tasksData.filter(task => task.hp && task.hp > 0).slice(0, 5)
+    });
+    
+    // Get unique site names from tasks
+    const uniqueSiteNames = [...new Set(tasksData.map(task => task.siteName).filter(Boolean))];
+    
+    // Calculate total HP using priority logic: RFS HP (EL division) > DRM HP (SND division) > NTP HP (CW division)
+    const totalHP = uniqueSiteNames.reduce((sum, siteName) => {
+      const siteTasks = tasksData.filter(task => task.siteName === siteName);
+      const hpValue = getHpValueByPriorityFromTasks(siteTasks);
+      console.log(`Site ${siteName}: HP Value = ${hpValue}`);
       return sum + hpValue;
     }, 0);
     
     // Debug logging
-    console.log('Total HP calculation:', {
-      totalTasks: allTasks.length,
+    console.log('Total HP calculation with priority:', {
+      totalSites: uniqueSiteNames.length,
       totalHP: totalHP,
-      sampleTasks: allTasks.slice(0, 5).map(t => ({ siteName: t.siteName, hp: t.hp }))
+      sampleSites: uniqueSiteNames.slice(0, 5).map(siteName => {
+        const siteTasks = tasksData.filter(task => task.siteName === siteName);
+        const elTask = siteTasks.find(task => task.division?.toLowerCase() === 'el');
+        const sndTask = siteTasks.find(task => task.division?.toLowerCase() === 'snd');
+        const cwTask = siteTasks.find(task => task.division?.toLowerCase() === 'cw');
+        return {
+          siteName: siteName,
+          ntpHp: cwTask?.hp,
+          drmHp: sndTask?.hp,
+          rfsHp: elTask?.hp,
+          selectedHp: getHpValueByPriorityFromTasks(siteTasks)
+        };
+      })
     });
     
+    // Debug logging untuk semua sites dengan RFS HP
+    const sitesWithRfsHp = uniqueSiteNames.filter(siteName => {
+      const siteTasks = tasksData.filter(task => task.siteName === siteName);
+      const elTask = siteTasks.find(task => task.division?.toLowerCase() === 'el');
+      return elTask && elTask.hp && elTask.hp > 0;
+    });
+    console.log('Sites with RFS HP:', sitesWithRfsHp.map(siteName => {
+      const siteTasks = tasksData.filter(task => task.siteName === siteName);
+      const elTask = siteTasks.find(task => task.division?.toLowerCase() === 'el');
+      return {
+        siteName: siteName,
+        rfsHp: elTask?.hp,
+        rfsHpType: typeof elTask?.hp,
+        parsedRfsHp: parseInt(elTask?.hp) || 0,
+        selectedHp: getHpValueByPriorityFromTasks(siteTasks)
+      };
+    }));
+    
+    // Debug logging untuk semua sites dengan nilai HP yang dipilih
+    console.log('All sites with selected HP:', uniqueSiteNames.map(siteName => {
+      const siteTasks = tasksData.filter(task => task.siteName === siteName);
+      const elTask = siteTasks.find(task => task.division?.toLowerCase() === 'el');
+      const sndTask = siteTasks.find(task => task.division?.toLowerCase() === 'snd');
+      const cwTask = siteTasks.find(task => task.division?.toLowerCase() === 'cw');
+      return {
+        siteName: siteName,
+        ntpHp: cwTask?.hp,
+        drmHp: sndTask?.hp,
+        rfsHp: elTask?.hp,
+        selectedHp: getHpValueByPriorityFromTasks(siteTasks)
+      };
+    }));
+    
     // Get HP data for current user's sites (for pie chart sections)
-    const userHPData = allTasks
-      .filter(task => {
-        // Filter tasks that have the current user as PIC
-        const pic = task.pic || "";
-        return pic.toLowerCase().includes(loginName.toLowerCase()) && task.hp && task.hp > 0;
+    const userHPData = uniqueSiteNames
+      .filter(siteName => {
+        const siteTasks = tasksData.filter(task => task.siteName === siteName);
+        
+        // Filter sites that have the current user as PIC in any division
+        const hasUserAsPic = siteTasks.some(task => {
+          const pic = task.pic || "";
+          return pic.toLowerCase().includes(loginName.toLowerCase());
+        });
+        
+        const hpValue = getHpValueByPriorityFromTasks(siteTasks);
+        return hasUserAsPic && hpValue > 0;
       })
-      .map(task => ({
-        siteName: task.siteName || "-",
-        siteId: task.siteId || task.id,
-        hp: task.hp || 0,
-        city: task.city || "-",
-        status: task.status || "-"
-      }))
+      .map(siteName => {
+        const siteTasks = tasksData.filter(task => task.siteName === siteName);
+        const firstTask = siteTasks[0];
+        return {
+          siteName: siteName || "-",
+          siteId: firstTask?.siteId || firstTask?.id || "-",
+          hp: getHpValueByPriorityFromTasks(siteTasks),
+          city: firstTask?.city || "-",
+          status: firstTask?.status || "-"
+        };
+      })
       .sort((a, b) => b.hp - a.hp); // Sort by HP descending
     
     return { totalHP, hpData: userHPData };
@@ -1546,8 +1672,9 @@ const Dashboard = () => {
   const [users, setUsers] = useState<any[]>([]);
   // Modal state for BOQ details
   const [isBOQModalOpen, setIsBOQModalOpen] = useState(false);
-  const [selectedSiteId, setSelectedSiteId] = useState<string | null>(null);
+  const [selectedSiteName, setSelectedSiteName] = useState<string | null>(null);
   const [selectedPieFilter, setSelectedPieFilter] = useState<{chart: string, value: string} | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
   const router = useRouter();
   const { user } = useAuth();
   const [loginName, setLoginName] = useState<string>("");
@@ -1566,24 +1693,26 @@ const Dashboard = () => {
   // All tasks data for region chart calculation
   const [allTasks, setAllTasks] = useState<any[]>([]);
   
-  // Filtered site data based on filters
+  // Filtered site data based on logged-in user's RPM and other filters
   const filteredSiteData = useMemo(() => {
     let filtered = [...siteData];
     
-    // Filter by PIC (only show PICs where RPM matches logged-in user)
+    // Automatically filter by logged-in user's RPM name
+    if (loginName) {
+      filtered = filtered.filter(site => 
+        site.rpm && site.rpm.toLowerCase().includes(loginName.toLowerCase())
+      );
+    }
+    
+    // Filter by PIC
     if (picFilter) {
       filtered = filtered.filter(site => 
-        (site.picPermit && site.picPermit.toLowerCase().includes(picFilter.toLowerCase()) && site.rpm && site.rpm.toLowerCase() === loginName) ||
-        (site.picSnd && site.picSnd.toLowerCase().includes(picFilter.toLowerCase()) && site.rpm && site.rpm.toLowerCase() === loginName) ||
-        (site.picCw && site.picCw.toLowerCase().includes(picFilter.toLowerCase()) && site.rpm && site.rpm.toLowerCase() === loginName) ||
-        (site.picEl && site.picEl.toLowerCase().includes(picFilter.toLowerCase()) && site.rpm && site.rpm.toLowerCase() === loginName) ||
-        (site.picDocument && site.picDocument.toLowerCase().includes(picFilter.toLowerCase()) && site.rpm && site.rpm.toLowerCase() === loginName) ||
-        (site.pic && site.pic.toLowerCase().includes(picFilter.toLowerCase()) && site.rpm && site.rpm.toLowerCase() === loginName)
-      );
-    } else {
-      // If no PIC filter, only show sites where RPM matches logged-in user
-      filtered = filtered.filter(site => 
-        site.rpm && site.rpm.toLowerCase() === loginName
+        (site.picPermit && site.picPermit.toLowerCase().includes(picFilter.toLowerCase())) ||
+        (site.picSnd && site.picSnd.toLowerCase().includes(picFilter.toLowerCase())) ||
+        (site.picCw && site.picCw.toLowerCase().includes(picFilter.toLowerCase())) ||
+        (site.picEl && site.picEl.toLowerCase().includes(picFilter.toLowerCase())) ||
+        (site.picDocument && site.picDocument.toLowerCase().includes(picFilter.toLowerCase())) ||
+        (site.pic && site.pic.toLowerCase().includes(picFilter.toLowerCase()))
       );
     }
     
@@ -1678,7 +1807,7 @@ const Dashboard = () => {
     }
     
     return filtered;
-  }, [siteData, picFilter, dateRange, allTasks, loginName]);
+  }, [siteData, loginName, picFilter, dateRange, allTasks]);
 
   // Get user name from Firebase
   useEffect(() => {
@@ -1788,6 +1917,19 @@ const Dashboard = () => {
         // Total: semua tasks dengan division permit
         const permitTasks = filteredTasks.filter(task => task.division?.toLowerCase() === 'permit');
         
+        // Debug logging untuk permit tasks
+        console.log('=== PERMIT DATA CALCULATION DEBUG ===');
+        console.log('Filtered Site Data Length:', filteredSiteData.length);
+        console.log('All Tasks Length:', allTasks.length);
+        console.log('Filtered Tasks:', filteredTasks.length);
+        console.log('Permit Tasks:', permitTasks.length);
+        console.log('Permit Tasks with HP:', permitTasks.filter(task => task.hp && task.hp > 0));
+        console.log('Sample Permit Tasks:', permitTasks.slice(0, 3).map(task => ({
+          siteName: task.siteName,
+          division: task.division,
+          sections: task.sections?.length || 0
+        })));
+        
         // Helper function untuk mengecek section dengan status_task = 'Done'
         const checkSectionDone = (task: any, sectionName: string) => {
           if (!task.sections || !Array.isArray(task.sections)) return false;
@@ -1878,60 +2020,75 @@ const Dashboard = () => {
           if (latestStatus && latestStatus in dependentStatusCounts) {
             dependentStatusCounts[latestStatus as keyof typeof dependentStatusCounts]++;
             
-            // Calculate HP for this site
-            const siteTasks = permitTasks.filter(task => task.siteName === siteName);
-            const siteHP = siteTasks.reduce((sum, task) => {
-              if (task.division?.toLowerCase() === 'permit' && task.hp && task.hp > 0) {
-                const hpValue = typeof task.hp === 'number' ? task.hp : parseInt(task.hp) || 0;
-                return sum + hpValue;
-              }
-              return sum;
-            }, 0);
-            
-            dependentStatusHP[latestStatus as keyof typeof dependentStatusHP] += siteHP;
+            // Calculate HP for this site using priority logic
+            const siteData = filteredSiteData.find(site => site.siteName === siteName);
+            if (siteData) {
+              const siteHP = getHpValueByPriority(siteData);
+              dependentStatusHP[latestStatus as keyof typeof dependentStatusHP] += siteHP;
+            }
           }
         });
         
-        // Calculate HP for OG sites
+        // Calculate HP for OG sites using priority logic
         const ogHP = ogSites.reduce((sum, site) => {
-          const siteTasks = filteredTasks.filter(t => t.siteName === site.siteName);
-          let hpValue = 0;
-          
-          // Get CW division HP first
-          const cwTask = siteTasks.find(t => t.division?.toLowerCase() === 'cw');
-          if (cwTask && cwTask.hp) {
-            hpValue = typeof cwTask.hp === 'number' ? cwTask.hp : parseInt(cwTask.hp) || 0;
-          }
-          
-          // If no CW HP, try EL division
-          if (hpValue === 0) {
-            const elTask = siteTasks.find(t => t.division?.toLowerCase() === 'el');
-            if (elTask && elTask.hp) {
-              hpValue = typeof elTask.hp === 'number' ? elTask.hp : parseInt(elTask.hp) || 0;
-            }
-          }
-          
-          // If still no HP, try SND division
-          if (hpValue === 0) {
-            const sndTask = siteTasks.find(t => t.division?.toLowerCase() === 'snd');
-            if (sndTask && sndTask.hp) {
-              hpValue = typeof sndTask.hp === 'number' ? sndTask.hp : parseInt(sndTask.hp) || 0;
-            }
-          }
-          
+          const hpValue = getHpValueByPriority(site);
           return sum + hpValue;
         }, 0);
         
+        // Calculate HP for BA OPEN sites using priority logic
+        const baOpenHP = baOpenTasks.reduce((sum, task) => {
+          // Find corresponding site data for this task
+          const siteData = filteredSiteData.find(site => site.siteName === task.siteName);
+          if (siteData) {
+            const hpValue = getHpValueByPriority(siteData);
+            return sum + hpValue;
+          }
+          return sum;
+        }, 0);
+        
+        // Calculate HP for BA REJECT sites using priority logic
+        const baRejectHP = baRejectTasks.reduce((sum, task) => {
+          // Find corresponding site data for this task
+          const siteData = filteredSiteData.find(site => site.siteName === task.siteName);
+          if (siteData) {
+            const hpValue = getHpValueByPriority(siteData);
+            return sum + hpValue;
+          }
+          return sum;
+        }, 0);
+        
+        // Debug logging untuk tasks dan HP
+        console.log('=== PERMIT DATA DEBUG ===');
+        console.log('Total Permit Sites:', totalPermitSites);
+        console.log('BA OPEN Count:', baOpenCount);
+        console.log('BA REJECT Count:', baRejectCount);
+        console.log('OG Sites Length:', ogSites.length);
+        console.log('Dependent Status Counts:', dependentStatusCounts);
+        console.log('BA OPEN Tasks:', baOpenTasks.map(task => ({ siteName: task.siteName, hp: task.hp, division: task.division })));
+        console.log('BA REJECT Tasks:', baRejectTasks.map(task => ({ siteName: task.siteName, hp: task.hp, division: task.division })));
+        console.log('BA OPEN HP:', baOpenHP);
+        console.log('BA REJECT HP:', baRejectHP);
+        console.log('=== END PERMIT DATA DEBUG ===');
+        
         const data = [
-          { name: 'OG', value: ogSites.length, total: totalPermitSites, color: '#b71c1c', isCompleted: ogSites.length > 0, hp: ogHP },
-          { name: 'BA OPEN (Approved)', value: baOpenCount, total: totalPermitSites, color: '#bfa600', isCompleted: baOpenCount > 0, hp: 0 },
-          { name: 'BA REJECT', value: baRejectCount, total: totalPermitSites, color: '#039be5', isCompleted: baRejectCount > 0, hp: 0 },
-          { name: 'BAK', value: dependentStatusCounts['BAK'], total: totalPermitSites, color: '#1976d2', isCompleted: dependentStatusCounts['BAK'] > 0, hp: dependentStatusHP['BAK'] },
-          { name: 'SND KASAR', value: dependentStatusCounts['SND KASAR'], total: totalPermitSites, color: '#8e24aa', isCompleted: dependentStatusCounts['SND KASAR'] > 0, hp: dependentStatusHP['SND KASAR'] },
-          { name: 'VALIDASI SALES', value: dependentStatusCounts['VALIDASI SALES'], total: totalPermitSites, color: '#43a047', isCompleted: dependentStatusCounts['VALIDASI SALES'] > 0, hp: dependentStatusHP['VALIDASI SALES'] },
-          { name: 'DONATION APPROVED', value: dependentStatusCounts['DONATION APPROVED'], total: totalPermitSites, color: '#e57373', isCompleted: dependentStatusCounts['DONATION APPROVED'] > 0, hp: dependentStatusHP['DONATION APPROVED'] },
-          { name: 'SKOM PERMIT', value: dependentStatusCounts['SKOM PERMIT'], total: totalPermitSites, color: '#7cb342', isCompleted: dependentStatusCounts['SKOM PERMIT'] > 0, hp: dependentStatusHP['SKOM PERMIT'] }
+          { name: 'OG', value: ogSites.length, total: totalPermitSites, color: '#ff9800', isCompleted: ogSites.length > 0, hp: ogHP }, // Orange
+          { name: 'BA OPEN (Approved)', value: baOpenCount, total: totalPermitSites, color: '#4caf50', isCompleted: baOpenCount > 0, hp: baOpenHP }, // Green
+          { name: 'BA REJECT', value: baRejectCount, total: totalPermitSites, color: '#f44336', isCompleted: baRejectCount > 0, hp: baRejectHP }, // Red
+          { name: 'BAK', value: dependentStatusCounts['BAK'], total: baOpenCount > 0 ? baOpenCount : totalPermitSites, color: '#1976d2', isCompleted: dependentStatusCounts['BAK'] > 0, hp: dependentStatusHP['BAK'] },
+          { name: 'SND KASAR', value: dependentStatusCounts['SND KASAR'], total: baOpenCount > 0 ? baOpenCount : totalPermitSites, color: '#8e24aa', isCompleted: dependentStatusCounts['SND KASAR'] > 0, hp: dependentStatusHP['SND KASAR'] },
+          { name: 'VALIDASI SALES', value: dependentStatusCounts['VALIDASI SALES'], total: baOpenCount > 0 ? baOpenCount : totalPermitSites, color: '#43a047', isCompleted: dependentStatusCounts['VALIDASI SALES'] > 0, hp: dependentStatusHP['VALIDASI SALES'] },
+          { name: 'DONATION APPROVED', value: dependentStatusCounts['DONATION APPROVED'], total: baOpenCount > 0 ? baOpenCount : totalPermitSites, color: '#e57373', isCompleted: dependentStatusCounts['DONATION APPROVED'] > 0, hp: dependentStatusHP['DONATION APPROVED'] },
+          { name: 'SKOM PERMIT', value: dependentStatusCounts['SKOM PERMIT'], total: baOpenCount > 0 ? baOpenCount : totalPermitSites, color: '#7cb342', isCompleted: dependentStatusCounts['SKOM PERMIT'] > 0, hp: dependentStatusHP['SKOM PERMIT'] }
         ];
+        
+        // Debug logging untuk HP values
+        console.log('Final Permit Data:', data.map(item => ({ 
+          name: item.name, 
+          value: item.value, 
+          total: item.total, 
+          percentage: item.total > 0 ? ((item.value / item.total) * 100).toFixed(1) : '0',
+          hp: item.hp 
+        })));
         
         setPermitData(data);
       } catch (error) {
@@ -2084,6 +2241,12 @@ const Dashboard = () => {
         const tasksRef = collection(db, "tasks");
         const snapshot = await getDocs(tasksRef);
         const tasks = snapshot.docs.map(doc => doc.data());
+        
+        // Debug logging untuk melihat data tasks
+        console.log('All Tasks from Firebase:', tasks.length);
+        console.log('Sample Task with HP:', tasks.find(task => task.hp && task.hp > 0));
+        console.log('Tasks with Permit division:', tasks.filter(task => task.division?.toLowerCase() === 'permit'));
+        
         setAllTasks(tasks);
       } catch (error) {
         console.error("Error fetching all tasks:", error);
@@ -2358,14 +2521,14 @@ const Dashboard = () => {
       { name: 'PO ADDITIONAL', value: 0, total: 0, color: '#98D8C8', isCompleted: false }
     ],
     permit: permitData.length > 0 ? permitData : [
-      { name: 'OG', value: 0, total: 0, color: '#b71c1c', isCompleted: false, hp: 0 },
-      { name: 'BA OPEN (Approved)', value: 0, total: 0, color: '#bfa600', isCompleted: false, hp: 0 },
-      { name: 'BA REJECT', value: 0, total: 0, color: '#039be5', isCompleted: false, hp: 0 },
+      { name: 'OG', value: 0, total: 0, color: '#ff9800', isCompleted: false, hp: 0 }, // Orange
+      { name: 'BA OPEN (Approved)', value: 0, total: 0, color: '#4caf50', isCompleted: false, hp: 0 }, // Green
+      { name: 'BA REJECT', value: 0, total: 0, color: '#f44336', isCompleted: false, hp: 0 }, // Red
       { name: 'BAK', value: 0, total: 0, color: '#1976d2', isCompleted: false, hp: 0 },
       { name: 'SND KASAR', value: 0, total: 0, color: '#8e24aa', isCompleted: false, hp: 0 },
       { name: 'VALIDASI SALES', value: 0, total: 0, color: '#43a047', isCompleted: false, hp: 0 },
       { name: 'DONATION APPROVED', value: 0, total: 0, color: '#e57373', isCompleted: false, hp: 0 },
-      { name: 'SKOM', value: 0, total: 0, color: '#7cb342', isCompleted: false, hp: 0 },
+      { name: 'SKOM PERMIT', value: 0, total: 0, color: '#7cb342', isCompleted: false, hp: 0 },
     ],
     snd: sndData.length > 0 ? sndData : [
       { name: 'SURVEY', value: 0, total: 0, color: '#FF6B6B', isCompleted: false, hp: 0 },
@@ -2910,16 +3073,30 @@ const Dashboard = () => {
       return result;
     });
     
-    console.log('filteredDetailsData final result length:', result.length);
-    console.log('filteredDetailsData sample items:', result.slice(0, 3).map(item => ({
+    // Apply search filter
+    const searchFilteredResult = result.filter(item => {
+      if (!searchTerm.trim()) return true;
+      
+      const searchLower = searchTerm.toLowerCase();
+      const siteId = (item.siteId || '').toString().toLowerCase();
+      const siteName = (item.siteName || '').toString().toLowerCase();
+      const siteType = (item.siteType || '').toString().toLowerCase();
+      
+      return siteId.includes(searchLower) || 
+             siteName.includes(searchLower) || 
+             siteType.includes(searchLower);
+    });
+    
+    console.log('filteredDetailsData final result length:', searchFilteredResult.length);
+    console.log('filteredDetailsData sample items:', searchFilteredResult.slice(0, 3).map(item => ({
       siteName: item.siteName,
       statusCw: item.statusCw,
       statusEl: item.statusEl,
       statusDocument: item.statusDocument
     })));
     
-    return result;
-  }, [picFilter, dateRange, siteData, selectedCity, selectedPieFilter, allTasks]);
+    return searchFilteredResult;
+  }, [picFilter, loginName, dateRange, siteData, selectedCity, selectedPieFilter, allTasks, searchTerm]);
 
   // Chart data for current drilldown level - using pie chart data
   const chartData = useMemo(() => {
@@ -3059,18 +3236,25 @@ const Dashboard = () => {
       return acc;
     }, [] as DetailDataItem[]);
     
-    // Calculate total HP by taking the latest/largest HP value from each site
+    // Calculate total HP based on priority: RFS HP > DRM HP > NTP HP
     return uniqueSites.reduce((total, site) => {
-      const ntpHp = parseInt(site.ntpHp || '0') || 0;
-      const drmHp = parseInt(site.drmHp || '0') || 0;
-      const rfsHp = parseInt(site.rfsHp || '0') || 0;
+      const ntpHp = (site.ntpHp && site.ntpHp !== '-') ? parseInt(site.ntpHp) || 0 : 0;
+      const drmHp = (site.drmHp && site.drmHp !== '-') ? parseInt(site.drmHp) || 0 : 0;
+      const rfsHp = (site.rfsHp && site.rfsHp !== '-') ? parseInt(site.rfsHp) || 0 : 0;
       
-      // Take the largest/latest HP value from the three fields
-      const siteLatestHP = Math.max(ntpHp, drmHp, rfsHp);
+      // Priority logic: ambil RFS HP jika ada, jika tidak ambil DRM HP, jika tidak ambil NTP HP
+      let selectedHP = 0;
+      if (rfsHp > 0) {
+        selectedHP = rfsHp;
+      } else if (drmHp > 0) {
+        selectedHP = drmHp;
+      } else if (ntpHp > 0) {
+        selectedHP = ntpHp;
+      }
       
-      console.log(`Site ${site.siteName}: NTP HP = ${ntpHp}, DRM HP = ${drmHp}, RFS HP = ${rfsHp}, Latest = ${siteLatestHP}`);
+      console.log(`Site ${site.siteName}: NTP HP = ${ntpHp}, DRM HP = ${drmHp}, RFS HP = ${rfsHp}, Selected = ${selectedHP}`);
       
-      return total + siteLatestHP;
+      return total + selectedHP;
     }, 0);
   }, [filteredSiteData]);
 
@@ -3238,10 +3422,25 @@ const Dashboard = () => {
             data.forEach(item => {
                     if (item && typeof item.total !== 'undefined' && typeof item.value !== 'undefined' && 
                         typeof item.name !== 'undefined' && typeof item.color !== 'undefined') {
-                    transformed.push({ name: item.name, value: item.value, color: item.color, type: 'completed', total: item.total });
+                    // Add HP information to the chart data
+                    transformed.push({ 
+                      name: item.name, 
+                      value: item.value, 
+                      color: item.color, 
+                      type: 'completed', 
+                      total: item.total,
+                      hp: item.hp || 0 
+                    });
                     const remainingValue = item.total - item.value;
                     if (remainingValue > 0) {
-                        transformed.push({ name: item.name, value: remainingValue, color: item.color, type: 'remaining', total: item.total });
+                        transformed.push({ 
+                          name: item.name, 
+                          value: remainingValue, 
+                          color: item.color, 
+                          type: 'remaining', 
+                          total: item.total,
+                          hp: 0 // Remaining doesn't have HP
+                        });
                     }
                 }
             });
@@ -3255,23 +3454,17 @@ const Dashboard = () => {
 
     // Function to get HP total for specific pie chart section
     const getHPForSection = (sectionName: string): number => {
-      if (!hpData || hpData.length === 0 || !siteData || siteData.length === 0) return 0;
+      console.log(`Getting HP for section: ${sectionName} in chart: ${title}`);
       
-      // Filter siteData based on selected city
-      let filteredSiteData = siteData;
-      if (selectedCity) {
-        filteredSiteData = siteData.filter(item => item.city === selectedCity);
-      }
-      
-      // For PO Status chart, use the HP value from the data
-      if (title === 'PO Status') {
-        const dataItem = data.find(item => item.name === sectionName);
-        return dataItem?.hp || 0;
-      }
-      
-      // For other charts, use the value from pie chart data (count of sites)
+      // Always try to get HP from the data first
       const dataItem = data.find(item => item.name === sectionName);
-      return dataItem?.value || 0;
+      if (dataItem && dataItem.hp && dataItem.hp > 0) {
+        console.log(`Found HP in data: ${dataItem.hp}`);
+        return dataItem.hp;
+      }
+      
+      console.log(`No HP found in data for ${sectionName}, returning 0`);
+      return 0;
     };
 
     // Custom Tooltip for PieChart
@@ -3279,9 +3472,12 @@ const Dashboard = () => {
       if (active && payload && payload.length) {
         const entry = payload[0].payload;
         if (entry.type === 'completed') {
-          const percent = entry.total > 0 ? Math.round((entry.value / entry.total) * 100) : 0;
+          const percent = entry.total > 0 ? Number(((entry.value / entry.total) * 100).toFixed(1)) : 0;
           const isSelected = selectedPieFilter?.chart === title && selectedPieFilter?.value === entry.name;
-          const sectionHP = getHPForSection(entry.name);
+          // Use HP from entry if available, otherwise get from function
+          const sectionHP = entry.hp || getHPForSection(entry.name);
+          
+          console.log(`Tooltip for ${entry.name}: entry.hp=${entry.hp}, sectionHP=${sectionHP}`);
           
           return (
             <div style={{ 
@@ -3311,7 +3507,7 @@ const Dashboard = () => {
               <div>
                 <span style={{ color: '#222', fontWeight: 700 }}>{entry.value}</span>
                 <span style={{ color: '#888' }}> / {entry.total} </span>
-                <span style={{ color: '#16a34a', fontWeight: 700 }}>HP: {entry.hp ? entry.hp.toLocaleString() : '0'}</span>
+                <span style={{ color: '#16a34a', fontWeight: 700 }}>HP: {sectionHP ? sectionHP.toLocaleString() : '0'}</span>
                 <span style={{ color: '#1976d2', fontWeight: 700 }}> ({percent}%)</span>
               </div>
               {isSelected && (
@@ -3452,7 +3648,7 @@ const Dashboard = () => {
                   typeof item.name === 'undefined' || typeof item.color === 'undefined') {
                 return null;
               }
-            const percent = item.total > 0 ? Math.round((item.value / item.total) * 100) : 0;
+            const percent = item.total > 0 ? Number(((item.value / item.total) * 100).toFixed(1)) : 0;
               const isSelected = selectedPieFilter?.chart === title && selectedPieFilter?.value === item.name;
               const sectionHP = getHPForSection(item.name);
               
@@ -3523,6 +3719,7 @@ const Dashboard = () => {
     </div>
   );
 
+  // Inside the Dashboard component, before the return statement:
   const {
     currentPage,
     totalPages,
@@ -3562,6 +3759,7 @@ const Dashboard = () => {
                 onClick={() => {
                   setPicFilter('');
                   setDateRange({ start: '', end: '' });
+                  setSearchTerm('');
                 }}
                 className="flex items-center space-x-2 bg-red-50 hover:bg-red-100 text-red-600 px-4 py-2 rounded-lg text-sm font-medium transition-colors border border-red-200"
               >
@@ -3626,7 +3824,7 @@ const Dashboard = () => {
             </div>
 
             {/* Active Filters Display */}
-            {(picFilter || dateRange.start || dateRange.end) && (
+            {(picFilter || dateRange.start || dateRange.end || searchTerm) && (
               <div className="mt-4 pt-4 border-t border-gray-200">
                 <div className="flex items-center space-x-2 mb-2">
                   <span className="text-sm font-medium text-gray-700">Active Filters:</span>
@@ -3639,6 +3837,18 @@ const Dashboard = () => {
                       <button 
                         onClick={() => setPicFilter('')}
                         className="ml-1 hover:text-green-600"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </span>
+                  )}
+                  {searchTerm && (
+                    <span className="inline-flex items-center space-x-1 bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-xs font-medium">
+                      <Search className="w-3 h-3" />
+                      <span>Search: {searchTerm}</span>
+                      <button 
+                        onClick={() => setSearchTerm('')}
+                        className="ml-1 hover:text-blue-600"
                       >
                         <X className="w-3 h-3" />
                       </button>
@@ -3921,7 +4131,30 @@ const Dashboard = () => {
           
           <div className="bg-white rounded-xl p-6 shadow-lg border border-gray-100">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-800">Details</h3>
+              <div className="flex items-center gap-4">
+                <h3 className="text-lg font-semibold text-gray-800">Details</h3>
+                {/* Search Bar */}
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <Search className="h-4 w-4 text-gray-400" />
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Search by Site ID, Site Name, or Site Type..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="block w-80 pl-10 pr-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+                  />
+                  {searchTerm && (
+                    <button
+                      onClick={() => setSearchTerm('')}
+                      className="absolute inset-y-0 right-0 pr-3 flex items-center"
+                    >
+                      <X className="h-4 w-4 text-gray-400 hover:text-gray-600" />
+                    </button>
+                  )}
+                </div>
+              </div>
               {(selectedCity || selectedPieFilter) && (
                 <div className="flex items-center gap-2">
                   {selectedCity && (
@@ -4184,7 +4417,7 @@ const Dashboard = () => {
                           >
                             
                             <td className="p-2 text-center border border-gray-300 text-gray-800 text-sm whitespace-nowrap">
-                              {index + 1}
+                              {startItem + index}
                             </td>
                             <td className="p-2 text-center border border-gray-300 text-gray-800 text-sm whitespace-nowrap">
                               {displayValue(item.poPermit)}
@@ -4209,35 +4442,35 @@ const Dashboard = () => {
                             </td>
                             <td 
                               className="p-2 text-center border border-gray-300 text-gray-800 text-sm whitespace-nowrap cursor-pointer hover:bg-blue-50 transition-colors duration-200"
-                              onClick={() => router.push(`/project/top/site/preview?siteId=${item.siteId}&division=PERMIT`)}
+                              onClick={() => router.push(`/project/rpm/site/preview?siteName=${item.siteName}&division=PERMIT`)}
                               title="Click to view Permit sections"
                             >
                               {item.permitStatus}
                             </td>
                             <td 
                               className="p-2 text-center border border-gray-300 text-gray-800 text-sm whitespace-nowrap cursor-pointer hover:bg-blue-50 transition-colors duration-200"
-                              onClick={() => router.push(`/project/top/site/preview?siteId=${item.siteId}&division=SND`)}
+                              onClick={() => router.push(`/project/rpm/site/preview?siteName=${item.siteName}&division=SND`)}
                               title="Click to view SND sections"
                             >
                               {item.sndStatus}
                             </td>
                             <td 
                               className="p-2 text-center border border-gray-300 text-sm whitespace-nowrap text-black cursor-pointer hover:bg-blue-50 transition-colors duration-200"
-                              onClick={() => router.push(`/project/top/site/preview?siteId=${item.siteId}&division=CW`)}
+                              onClick={() => router.push(`/project/rpm/site/preview?siteName=${item.siteName}&division=CW`)}
                               title="Click to view CW sections"
                             >
                               {item.cwStatus}
                             </td>
                             <td 
                               className="p-2 text-center border border-gray-300 text-gray-800 text-sm whitespace-nowrap cursor-pointer hover:bg-blue-50 transition-colors duration-200"
-                              onClick={() => router.push(`/project/top/site/preview?siteId=${item.siteId}&division=EL`)}
+                              onClick={() => router.push(`/project/rpm/site/preview?siteName=${item.siteName}&division=EL`)}
                               title="Click to view EL sections"
                             >
                               {item.elStatus}
                             </td>
                             <td 
                               className="p-2 text-center border border-gray-300 text-gray-800 text-sm whitespace-nowrap cursor-pointer hover:bg-blue-50 transition-colors duration-200"
-                              onClick={() => router.push(`/project/top/site/preview?siteId=${item.siteId}&division=Document`)}
+                              onClick={() => router.push(`/project/rpm/site/preview?siteName=${item.siteName}&division=Document`)}
                               title="Click to view Document sections"
                             >
                               {item.document}
@@ -4306,14 +4539,14 @@ const Dashboard = () => {
                             <td className="p-2 text-center border border-gray-300 text-gray-800 text-sm whitespace-nowrap">
                               <div className="flex justify-center items-center space-x-3">
                                 <button
-                                  onClick={() => router.push(`/project/top/site/preview?siteId=${encodeURIComponent(item.siteId)}`)}
+                                  onClick={() => router.push(`/project/rpm/site/preview?siteName=${encodeURIComponent(item.siteName)}`)}
                                   className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-all duration-200 text-sm font-medium shadow-sm"
                                 >
                                   {displayValue(item.operation)}
                                 </button>
                                 <button
                                   onClick={() => {
-                                    setSelectedSiteId(item.siteId);
+                                    setSelectedSiteName(item.siteName);
                                     setIsBOQModalOpen(true);
                                   }}
                                   className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-all duration-200 text-sm font-medium shadow-sm"
@@ -4329,24 +4562,132 @@ const Dashboard = () => {
               )}
             </div>
           </div>
-          <Pagination
-            data={filteredDetailsData}
-            currentPage={currentPage}
-            onPageChange={goToPage}
-            itemsPerPage={25}
+        </div>
+        
+        {/* Custom Pagination Component - Outside the table container */}
+        <div className="bg-white rounded-xl p-6 shadow-lg border border-gray-100 mt-6">
+          <div className="flex flex-col sm:flex-row justify-between items-center space-y-4 sm:space-y-0">
+            {/* Pagination Info */}
+            <div className="text-sm text-gray-700">
+              Showing <span className="font-medium">{startItem}</span> to <span className="font-medium">{endItem}</span> of{' '}
+              <span className="font-medium">{totalItems}</span> results
+            </div>
+            
+            {/* Pagination Controls */}
+            <div className="flex items-center space-x-2">
+                {/* Previous Button */}
+                <button
+                  onClick={() => goToPage(currentPage - 1)}
+                  disabled={currentPage === 1}
+                  className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    currentPage === 1
+                      ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                      : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  Previous
+                </button>
+                
+                {/* Page Numbers */}
+                <div className="flex items-center space-x-1">
+                  {(() => {
+                    const pages = [];
+                    const maxVisible = 5;
+                    let startPage = Math.max(1, currentPage - Math.floor(maxVisible / 2));
+                    let endPage = Math.min(totalPages, startPage + maxVisible - 1);
+                    
+                    if (endPage - startPage + 1 < maxVisible) {
+                      startPage = Math.max(1, endPage - maxVisible + 1);
+                    }
+                    
+                    // First page + ellipsis
+                    if (startPage > 1) {
+                      pages.push(
+                        <button
+                          key={1}
+                          onClick={() => goToPage(1)}
+                          className="px-3 py-2 rounded-lg text-sm font-medium bg-white border border-gray-300 text-gray-700 hover:bg-gray-50"
+                        >
+                          1
+                        </button>
+                      );
+                      if (startPage > 2) {
+                        pages.push(
+                          <span key="ellipsis1" className="px-2 py-2 text-gray-500">
+                            ...
+                          </span>
+                        );
+                      }
+                    }
+                    
+                    // Middle pages
+                    for (let i = startPage; i <= endPage; i++) {
+                      pages.push(
+                        <button
+                          key={i}
+                          onClick={() => goToPage(i)}
+                          className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                            i === currentPage
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
+                          }`}
+                        >
+                          {i}
+                        </button>
+                      );
+                    }
+                    
+                    // Last page + ellipsis
+                    if (endPage < totalPages) {
+                      if (endPage < totalPages - 1) {
+                        pages.push(
+                          <span key="ellipsis2" className="px-2 py-2 text-gray-500">
+                            ...
+                          </span>
+                        );
+                      }
+                      pages.push(
+                        <button
+                          key={totalPages}
+                          onClick={() => goToPage(totalPages)}
+                          className="px-3 py-2 rounded-lg text-sm font-medium bg-white border border-gray-300 text-gray-700 hover:bg-gray-50"
+                        >
+                          {totalPages}
+                        </button>
+                      );
+                    }
+                    
+                    return pages;
+                  })()}
+                </div>
+                
+                {/* Next Button */}
+                <button
+                  onClick={() => goToPage(currentPage + 1)}
+                  disabled={currentPage === totalPages}
+                  className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    currentPage === totalPages
+                      ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                      : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+              {/* BOQ Details Modal */}
+        {selectedSiteName && (
+          <BOQDetailsModal
+            isOpen={isBOQModalOpen}
+            onClose={() => setIsBOQModalOpen(false)}
+            siteName={selectedSiteName}
           />
-        </div>
-      </div>
-        </div>
-      </div>
-      {/* BOQ Details Modal */}
-      {selectedSiteId && (
-        <BOQDetailsModal
-          isOpen={isBOQModalOpen}
-          onClose={() => setIsBOQModalOpen(false)}
-          siteId={selectedSiteId}
-        />
-      )}
+        )}
+    </div>
     </div>
   );
 };

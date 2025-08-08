@@ -429,15 +429,12 @@ const ResignationPage: React.FC = () => {
 
       // Use Firebase data as primary, add mock data only if no Firebase data exists
       if (resignations.length > 0) {
-        console.log('Firebase resignations data:', resignations);
         setAllResignations(resignations);
       } else {
         // Add mock data only if no data from Firebase
-        console.log('No Firebase data found, using mock data');
         setAllResignations(mockResignations);
       }
     } catch (error) {
-      console.error('Error fetching resignation data:', error);
       // Use mock data as fallback
       setAllResignations(mockResignations);
     }
@@ -513,7 +510,6 @@ const ResignationPage: React.FC = () => {
         )
       );
 
-      console.log('Resignation marked as completed:', resignationId);
     } catch (error) {
       console.error('Error completing resignation:', error);
       alert('Failed to complete resignation. Please try again.');

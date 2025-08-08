@@ -128,6 +128,9 @@ export default function LoginPage() {
               {loading ? 'Logging in...' : 'Login'}
             </button>
           </form>
+          <div className="w-full text-center mt-8">
+            <span className="text-xs text-gray-400">Version 1.0.2</span>
+          </div>
         </div>
       </div>
     </div>

@@ -44,7 +44,23 @@ async function testFirebaseConnection() {
 }
 
 // Backend logic for progress and status
-async function getSiteProgress(siteId: string, siteName?: string): Promise<{ Permit: string; SND: string; CW: string; EL: string; Document: string }> {
+async function getSiteProgress(siteId: string, siteName?: string): Promise<{ 
+  Permit: string; 
+  SND: string; 
+  CW: string; 
+  EL: string; 
+  Document: string;
+  PermitRejected: boolean;
+  SNDRejected: boolean;
+  CWRejected: boolean;
+  ELRejected: boolean;
+  DocumentRejected: boolean;
+  PermitRejectReason: string;
+  SNDRejectReason: string;
+  CWRejectReason: string;
+  ELRejectReason: string;
+  DocumentRejectReason: string;
+}> {
   try {
     // Find all task documents by siteId or siteName (tanpa filter division)
     let q;
@@ -58,7 +74,17 @@ async function getSiteProgress(siteId: string, siteName?: string): Promise<{ Per
         SND: "0/0", 
         CW: "0/0",
         EL: "0/0",
-        Document: "0/0"
+        Document: "0/0",
+        PermitRejected: false,
+        SNDRejected: false,
+        CWRejected: false,
+        ELRejected: false,
+        DocumentRejected: false,
+        PermitRejectReason: "",
+        SNDRejectReason: "",
+        CWRejectReason: "",
+        ELRejectReason: "",
+        DocumentRejectReason: ""
       };
     }
     const snap = await getDocs(q);
@@ -68,7 +94,17 @@ async function getSiteProgress(siteId: string, siteName?: string): Promise<{ Per
         SND: "0/0",
         CW: "0/0", 
         EL: "0/0",
-        Document: "0/0"
+        Document: "0/0",
+        PermitRejected: false,
+        SNDRejected: false,
+        CWRejected: false,
+        ELRejected: false,
+        DocumentRejected: false,
+        PermitRejectReason: "",
+        SNDRejectReason: "",
+        CWRejectReason: "",
+        ELRejectReason: "",
+        DocumentRejectReason: ""
       };
     }
     // Gabungkan semua sections dari semua dokumen tasks dengan siteName sama
@@ -254,11 +290,41 @@ async function getSiteProgress(siteId: string, siteName?: string): Promise<{ Per
       Document: { uploaded: 0, target: 0 }
     };
 
+    // Track rejected status for each division
+    const divisionRejected: { [key: string]: boolean } = {
+      PERMIT: false,
+      SND: false,
+      CW: false,
+      EL: false,
+      Document: false
+    };
+
+    // Track reject reasons for each division
+    const divisionRejectReasons: { [key: string]: string[] } = {
+      PERMIT: [],
+      SND: [],
+      CW: [],
+      EL: [],
+      Document: []
+    };
+
     // Process each section
     sectionList.forEach(({ title, division }) => {
       const sectionName = title.replace(/^[A-Z]+\.\s*/, "");
       const uploads = allSections.filter((s: any) => s.section === sectionName);
       const uploadedCount = uploads.length;
+      
+      // Check for rejected sections in this division
+      const rejectedSections = uploads.filter((s: any) => s.status_task === "Rejected");
+      if (rejectedSections.length > 0) {
+        divisionRejected[division] = true;
+        // Collect reject reasons
+        rejectedSections.forEach((section: any) => {
+          if (section.reject_reason) {
+            divisionRejectReasons[division].push(section.reject_reason);
+          }
+        });
+      }
       
       // Calculate target based on BOQ data or hardcoded values
       let target = 1; // Default value
@@ -298,7 +364,17 @@ async function getSiteProgress(siteId: string, siteName?: string): Promise<{ Per
       SND: `${divisionProgress.SND.uploaded}/${divisionProgress.SND.target}`,
       CW: `${divisionProgress.CW.uploaded}/${divisionProgress.CW.target}`,
       EL: `${divisionProgress.EL.uploaded}/${divisionProgress.EL.target}`,
-      Document: `${divisionProgress.Document.uploaded}/${divisionProgress.Document.target}`
+      Document: `${divisionProgress.Document.uploaded}/${divisionProgress.Document.target}`,
+      PermitRejected: divisionRejected.PERMIT,
+      SNDRejected: divisionRejected.SND,
+      CWRejected: divisionRejected.CW,
+      ELRejected: divisionRejected.EL,
+      DocumentRejected: divisionRejected.Document,
+      PermitRejectReason: divisionRejectReasons.PERMIT.join("; "),
+      SNDRejectReason: divisionRejectReasons.SND.join("; "),
+      CWRejectReason: divisionRejectReasons.CW.join("; "),
+      ELRejectReason: divisionRejectReasons.EL.join("; "),
+      DocumentRejectReason: divisionRejectReasons.Document.join("; ")
     };
   } catch (error) {
     return {
@@ -306,7 +382,17 @@ async function getSiteProgress(siteId: string, siteName?: string): Promise<{ Per
       SND: "0/0",
       CW: "0/0",
       EL: "0/0",
-      Document: "0/0"
+      Document: "0/0",
+      PermitRejected: false,
+      SNDRejected: false,
+      CWRejected: false,
+      ELRejected: false,
+      DocumentRejected: false,
+      PermitRejectReason: "",
+      SNDRejectReason: "",
+      CWRejectReason: "",
+      ELRejectReason: "",
+      DocumentRejectReason: ""
     };
   }
   // Final fallback return to satisfy linter
@@ -315,7 +401,17 @@ async function getSiteProgress(siteId: string, siteName?: string): Promise<{ Per
     SND: "0/0",
     CW: "0/0",
     EL: "0/0",
-    Document: "0/0"
+    Document: "0/0",
+    PermitRejected: false,
+    SNDRejected: false,
+    CWRejected: false,
+    ELRejected: false,
+    DocumentRejected: false,
+    PermitRejectReason: "",
+    SNDRejectReason: "",
+    CWRejectReason: "",
+    ELRejectReason: "",
+    DocumentRejectReason: ""
   };
 }
 function getSiteStatus(progress: { Permit: string; SND: string; CW: string; EL: string; Document: string }): string {
@@ -577,6 +673,18 @@ interface SiteData {
   statusEl: string;
   statusDocument: string;
   totalOps: string;
+  // Rejected status fields
+  permitRejected: boolean;
+  sndRejected: boolean;
+  cwRejected: boolean;
+  elRejected: boolean;
+  documentRejected: boolean;
+  // Reject reason fields
+  permitRejectReason: string;
+  sndRejectReason: string;
+  cwRejectReason: string;
+  elRejectReason: string;
+  documentRejectReason: string;
   // Tambahan agar mapping tidak error
   division?: string;
   pic?: string;
@@ -585,12 +693,18 @@ interface SiteData {
 
 const SiteDetailPage = () => {
   const [isLoading, setIsLoading] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [selectedRowNo, setSelectedRowNo] = useState<number | null>(null);
+  const [formData, setFormData] = useState<Partial<SiteData>>({});
   // Modal state for BOQ details
   const [isBOQModalOpen, setIsBOQModalOpen] = useState(false);
-  const [selectedSiteId, setSelectedSiteId] = useState<string | null>(null);
+  const [selectedSiteName, setSelectedSiteName] = useState<string | null>(null);
+  // Add refresh trigger state
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   const [siteData, setSiteData] = useState<SiteData[]>([]);
   const [users, setUsers] = useState<any[]>([]); // Simpan semua user
+  const [divisionUsers, setDivisionUsers] = useState<{[key: string]: any[]}>({}); // User per division
 
   const [filters, setFilters] = useState({
     siteName: "",
@@ -645,12 +759,76 @@ const SiteDetailPage = () => {
     fetchUserName();
   }, [user]);
 
-  // Fetch semua user sekali saja
+  // Fetch semua user sekali saja dan kelompokkan berdasarkan division
   useEffect(() => {
     const fetchUsers = async () => {
       const usersRef = collection(db, "users");
       const snapshot = await getDocs(usersRef);
-      setUsers(snapshot.docs.map(doc => doc.data()));
+      // Define a type for user
+      type UserType = {
+        id: string;
+        name?: string;
+        division?: string;
+        department?: string;
+        role?: string;
+        [key: string]: any;
+      };
+
+      const allUsers: UserType[] = snapshot.docs.map(doc => ({
+        ...doc.data(),
+        id: doc.id // Preserve the document ID
+      }));
+      setUsers(allUsers);
+      
+      // Kelompokkan user berdasarkan division
+      const usersByDivision: {[key: string]: UserType[]} = {};
+      allUsers.forEach(user => {
+        // Coba berbagai kemungkinan field division
+        const divisionFields = ['division', 'department', 'role'];
+        let division = '';
+        
+        // Find first non-empty division field
+        for (const field of divisionFields) {
+          if (user[field]) {
+            division = String(user[field]).toLowerCase();
+            break;
+          }
+        }
+        
+        // Log user details for debugging
+        console.log(`User ${user.name}: ${JSON.stringify({
+          division: user.division,
+          department: user.department,
+          role: user.role,
+          finalDivision: division
+        })}`);
+        
+        if (division) {
+          // Map 'dc' division users to 'document' in usersByDivision
+          const mappedDivision = division === 'dc' ? 'document' : division;
+          
+          if (!usersByDivision[mappedDivision]) {
+            usersByDivision[mappedDivision] = [];
+          }
+          usersByDivision[mappedDivision].push(user);
+        }
+      });
+      
+      // Sort users in each division by name
+      Object.keys(usersByDivision).forEach(division => {
+        usersByDivision[division].sort((a, b) => 
+          (a.name || '').localeCompare(b.name || '')
+        );
+      });
+      
+      setDivisionUsers(usersByDivision);
+      console.log("Users by division:", 
+        Object.fromEntries(
+          Object.entries(usersByDivision).map(([k, v]) => 
+            [k, v.map(u => u.name)]
+          )
+        )
+      );
     };
     fetchUsers();
   }, []);
@@ -772,6 +950,18 @@ const SiteDetailPage = () => {
           statusEl: getLastSectionName(allSections, "EL") || "-",
           statusDocument: getLastSectionName(allSections, "DOCUMENT") || "-",
           totalOps: totalOps || "-",
+          // Rejected status fields
+          permitRejected: progress.PermitRejected,
+          sndRejected: progress.SNDRejected,
+          cwRejected: progress.CWRejected,
+          elRejected: progress.ELRejected,
+          documentRejected: progress.DocumentRejected,
+          // Reject reason fields
+          permitRejectReason: progress.PermitRejectReason,
+          sndRejectReason: progress.SNDRejectReason,
+          cwRejectReason: progress.CWRejectReason,
+          elRejectReason: progress.ELRejectReason,
+          documentRejectReason: progress.DocumentRejectReason,
         };
         
         console.log(`Row ${idx + 1} for site ${name}: docId = ${result.docId}`);
@@ -793,7 +983,7 @@ const SiteDetailPage = () => {
       setIsLoading(false);
     }
     if (loginName) fetchSites();
-  }, [filters, loginName]);
+  }, [filters, loginName, refreshTrigger]);
 
   // Apply frontend filtering including status filter
   const filteredData = siteData.filter(row => {
@@ -842,6 +1032,322 @@ const SiteDetailPage = () => {
     data: filteredData,
     itemsPerPage: 25,
   });
+
+  const handleEdit = () => {
+    if (selectedRowNo === null) {
+      alert("Please select a row to edit.");
+      return;
+    }
+    const selectedRow = siteData.find((row) => row.no === selectedRowNo);
+    if (selectedRow) {
+      console.log("Editing row:", selectedRow);
+      setIsEditing(true);
+      setFormData({ ...selectedRow });
+    } else {
+      alert("Selected row not found.");
+    }
+  };
+
+  const handleSave = async () => {
+    if (selectedRowNo !== null) {
+      const row = siteData.find((item) => item.no === selectedRowNo);
+      console.log("Selected row:", row);
+      console.log("Form data:", formData);
+      
+      if (row && row.docId) {
+        console.log("Found docId:", row.docId);
+        console.log("Form data:", formData);
+        
+        // Validate that we have at least some data to update
+        const hasChanges = Object.keys(formData).some(key => {
+          const formValue = formData[key as keyof typeof formData];
+          const originalValue = row[key as keyof typeof row];
+          
+          // Skip undefined values
+          if (formValue === undefined) return false;
+          
+          // Handle empty values and "-" values
+          const normalizedFormValue = formValue === "-" || formValue === "" ? "" : formValue;
+          const normalizedOriginalValue = originalValue === "-" || originalValue === "" ? "" : originalValue;
+          
+          // Case-insensitive comparison for string values
+          const isChanged = typeof normalizedFormValue === 'string' && typeof normalizedOriginalValue === 'string'
+            ? normalizedFormValue.toLowerCase() !== normalizedOriginalValue.toLowerCase()
+            : normalizedFormValue !== normalizedOriginalValue;
+            
+          if (isChanged) {
+            console.log(`Field ${key} changed: "${normalizedOriginalValue}" -> "${normalizedFormValue}"`);
+          }
+          
+          return isChanged;
+        });
+        
+        console.log("Has changes:", hasChanges);
+        
+        if (!hasChanges) {
+          alert("Tidak ada perubahan untuk disimpan.");
+          setIsEditing(false);
+          setSelectedRowNo(null);
+          setFormData({});
+          return;
+        }
+        
+        try {
+          setIsLoading(true);
+          
+          // Get all documents for this site to find division-specific documents
+          const { collection, query, where, getDocs } = await import("firebase/firestore");
+          const siteDocsQuery = query(collection(db, "tasks"), where("siteName", "==", row.siteName));
+          const siteDocsSnapshot = await getDocs(siteDocsQuery);
+          const siteDocs = siteDocsSnapshot.docs.map(doc => ({ ...doc.data(), docId: doc.id })) as any[];
+          
+          console.log(`Found ${siteDocs.length} documents for site ${row.siteName}`);
+          
+          // Helper function to add field to update if changed
+          const addFieldIfChanged = (fieldName: string, formValue: any, originalValue: any) => {
+            const normalizedFormValue = formValue === "-" ? "" : formValue;
+            const normalizedOriginalValue = originalValue === "-" ? "" : originalValue;
+            
+            if (normalizedFormValue !== normalizedOriginalValue) {
+              return { fieldName, value: normalizedFormValue };
+            }
+            return null;
+          };
+          
+          // Track updates for different documents
+          const updates: { docId: string; fields: any }[] = [];
+          const newTasksToCreate: { division: string; pic: string; hp?: string }[] = [];
+          
+          // Check regular fields (non-HP fields) - these go to the latest document
+          const regularFields: any = {};
+          addFieldIfChanged("poPermit", formData.poPermit, row.poPermit) && (regularFields.poPermit = formData.poPermit);
+          addFieldIfChanged("poSnd", formData.poSnd, row.poSnd) && (regularFields.poSnd = formData.poSnd);
+          addFieldIfChanged("poImp", formData.poImp, row.poImp) && (regularFields.poImp = formData.poImp);
+          addFieldIfChanged("poSf", formData.poSf, row.poSf) && (regularFields.poSf = formData.poSf);
+          addFieldIfChanged("poAdd", formData.poAdd, row.poAdd) && (regularFields.poAdd = formData.poAdd);
+          addFieldIfChanged("siteId", formData.siteId, row.siteId) && (regularFields.siteId = formData.siteId);
+          addFieldIfChanged("siteName", formData.siteName, row.siteName) && (regularFields.siteName = formData.siteName);
+          addFieldIfChanged("rpm", formData.rpm, row.rpm) && (regularFields.rpm = formData.rpm);
+          
+          // Check PIC changes and determine if new tasks need to be created
+          const picChanges = [
+            { field: 'picPermit', division: 'permit', value: formData.picPermit, original: row.picPermit },
+            { field: 'picSnd', division: 'snd', value: formData.picSnd, original: row.picSnd },
+            { field: 'picCw', division: 'cw', value: formData.picCw, original: row.picCw },
+            { field: 'picEl', division: 'el', value: formData.picEl, original: row.picEl },
+            { field: 'picDocument', division: 'document', value: formData.picDocument, original: row.picDocument }
+          ];
+          
+          // Check HP changes
+          const hpChanges = [
+            { field: 'ntpHp', division: 'permit', value: formData.ntpHp, original: row.ntpHp },
+            { field: 'drmHp', division: 'snd', value: formData.drmHp, original: row.drmHp },
+            { field: 'rfsHp', division: 'el', value: formData.rfsHp, original: row.rfsHp }
+          ];
+          
+          // Process regular field updates
+          if (Object.keys(regularFields).length > 0) {
+            // Update all documents for this site with regular fields
+            siteDocs.forEach(doc => {
+              updates.push({ docId: doc.docId, fields: regularFields });
+            });
+          }
+          
+          // Process PIC and HP changes
+          [...picChanges, ...hpChanges].forEach(change => {
+            if (change.value !== change.original) {
+              // Find existing document for this division
+              const existingDoc = siteDocs.find(doc => 
+                doc.division && doc.division.toLowerCase() === change.division
+              );
+              
+              if (existingDoc) {
+                // Update existing document
+                const existingUpdate = updates.find(u => u.docId === existingDoc.docId);
+                if (existingUpdate) {
+                  existingUpdate.fields[change.field] = change.value;
+                  
+                  // Update hp field for division when HP fields change
+                  if (change.field === 'ntpHp' && change.division === 'permit') {
+                    existingUpdate.fields.hp = change.value;
+                  } else if (change.field === 'drmHp' && change.division === 'snd') {
+                    existingUpdate.fields.hp = change.value;
+                  } else if (change.field === 'rfsHp' && change.division === 'el') {
+                    existingUpdate.fields.hp = change.value;
+                  }
+                } else {
+                  const fieldsToUpdate: any = { [change.field]: change.value };
+                  
+                  // Update hp field for division when HP fields change
+                  if (change.field === 'ntpHp' && change.division === 'permit') {
+                    fieldsToUpdate.hp = change.value;
+                  } else if (change.field === 'drmHp' && change.division === 'snd') {
+                    fieldsToUpdate.hp = change.value;
+                  } else if (change.field === 'rfsHp' && change.division === 'el') {
+                    fieldsToUpdate.hp = change.value;
+                  }
+                  
+                  updates.push({ docId: existingDoc.docId, fields: fieldsToUpdate });
+                }
+              } else if (change.field.startsWith('pic') && change.value) {
+                // Create new task for new PIC assignment
+                newTasksToCreate.push({
+                  division: change.division,
+                  pic: change.value,
+                  hp: change.field.startsWith('pic') ? undefined : change.value
+                });
+              }
+            }
+          });
+          
+          // Delete existing tasks and create new ones
+          const { updateDoc, addDoc, deleteDoc } = await import("firebase/firestore");
+
+          // Update PIC in existing documents or create new ones if needed
+          const picUpdatePromises: Promise<any>[] = [];
+          for (const change of picChanges) {
+            if (change.value !== change.original && change.value) { // Only proceed if we have a new value
+              // Find existing document for this division
+              const existingDoc = siteDocs.find(doc => 
+                doc.division && doc.division.toLowerCase() === change.division.toLowerCase()
+              );
+              
+              if (existingDoc) {
+                // Update only the pic field in existing document
+                console.log(`Updating PIC for division ${change.division} in doc ${existingDoc.docId}`);
+                picUpdatePromises.push(
+                  updateDoc(doc(db, "tasks", existingDoc.docId), {
+                    pic: change.value
+                  })
+                );
+              } else {
+                // Create new document if one doesn't exist
+                console.log(`Creating new document for division ${change.division}`);
+                const templateDoc = siteDocs[0]; // Use first doc as template
+                const newDocData = {
+                  division: change.division.toLowerCase(),
+                  pic: change.value,
+                  sections: [],
+                  createdAt: new Date(),
+                  // Essential fields
+                  siteName: row.siteName,
+                  siteId: row.siteId,
+                  region: row.region,
+                  city: row.city,
+                  rpm: row.rpm,
+                  // Add HP if relevant
+                  hp: (change.division.toLowerCase() === 'permit' ? formData.ntpHp : 
+                       change.division.toLowerCase() === 'snd' ? formData.drmHp :
+                       change.division.toLowerCase() === 'el' ? formData.rfsHp : 
+                       "-")
+                };
+                picUpdatePromises.push(addDoc(collection(db, "tasks"), newDocData));
+              }
+            }
+          }
+
+          // Wait for all updates to complete
+          if (picUpdatePromises.length > 0) {
+            console.log(`Executing ${picUpdatePromises.length} PIC updates/creations...`);
+            await Promise.all(picUpdatePromises);
+          }
+
+          // Handle regular field updates for all divisions (excluding PIC fields)
+          const updatedFields = { ...updates[0]?.fields };
+          delete updatedFields.pic;
+          delete updatedFields.picPermit;
+          delete updatedFields.picSnd;
+          delete updatedFields.picCw;
+          delete updatedFields.picEl;
+          delete updatedFields.picDocument;
+          delete updatedFields.hp;
+          delete updatedFields.ntpHp;
+          delete updatedFields.drmHp;
+          delete updatedFields.rfsHp;
+
+          const fieldUpdatePromises = Object.keys(updatedFields).length > 0 
+            ? updates.map(update => updateDoc(doc(db, "tasks", update.docId), updatedFields))
+            : [];
+          
+          // Handle HP updates only for existing documents
+          const hpUpdatePromises: Promise<any>[] = [];
+          for (const change of hpChanges) {
+            if (change.value !== change.original) {
+              // Find existing document for this division
+              const existingDoc = siteDocs.find(doc => 
+                doc.division && doc.division.toLowerCase() === change.division.toLowerCase()
+              );
+              
+              if (existingDoc) {
+                // Update HP in existing document
+                console.log(`Updating HP for division ${change.division} in doc ${existingDoc.docId}`);
+                hpUpdatePromises.push(
+                  updateDoc(doc(db, "tasks", existingDoc.docId), {
+                    hp: change.value || "-"
+                  })
+                );
+              }
+            }
+          }
+          
+          // Execute all updates
+          const results = await Promise.allSettled([
+            ...fieldUpdatePromises, 
+            ...picUpdatePromises, 
+            ...hpUpdatePromises
+          ]);
+          
+          // Check for any failures
+          const failures = results.filter(r => r.status === 'rejected');
+          if (failures.length > 0) {
+            console.error("Some operations failed:", failures);
+            throw new Error(`${failures.length} operations failed`);
+          }
+
+          // Log success
+          console.log(`Successfully completed ${results.length} operations`);
+          
+          // Trigger refresh to reload latest data
+          setRefreshTrigger(prev => prev + 1);
+          
+          // Reset form state
+          setIsEditing(false);
+          setSelectedRowNo(null);
+          setFormData({});
+          
+          alert("Data updated successfully!");
+          
+        } catch (error) {
+          console.error("Error updating data:", error);
+          alert("Error updating data. Please try again.");
+        } finally {
+          setIsLoading(false);
+        }
+      } else {
+        alert("Document ID not found for selected row.");
+      }
+    }
+  };
+
+  const handleCancel = () => {
+    setIsEditing(false);
+    setSelectedRowNo(null);
+    setFormData({});
+  };
+
+  const handleInputChange = (field: keyof SiteData, value: string) => {
+    setFormData((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleCheckboxChange = (rowNo: number) => {
+    setSelectedRowNo((prev) => (prev === rowNo ? null : rowNo));
+  };
+
+  // Utility untuk menampilkan '-' jika value kosong
+  const displayValue = (value: any) => {
+    if (value === undefined || value === null || value === "") return "-";
+    return value;
+  };
 
   // 6. In the table, use backend-driven values for Permit, SND, EL, Document, Status, Last Update
   const handleExportExcel = () => {
@@ -1054,13 +1560,24 @@ const SiteDetailPage = () => {
 
           <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
             <div className="flex items-center justify-end mb-4 space-x-3">
-              <button
-                onClick={handleExportExcel}
-                className="flex items-center space-x-2 bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600 transition-all duration-200 text-sm font-medium shadow-sm"
-              >
-                <FileDown size={18} />
-                <span>Export to Excel</span>
-              </button>
+              {!isEditing && (
+                <>
+                  <button
+                    onClick={handleEdit}
+                    className="flex items-center space-x-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-all duration-200 text-sm font-medium shadow-sm"
+                  >
+                    <Edit2 size={18} />
+                    <span>Edit</span>
+                  </button>
+                  <button
+                    onClick={handleExportExcel}
+                    className="flex items-center space-x-2 bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600 transition-all duration-200 text-sm font-medium shadow-sm"
+                  >
+                    <FileDown size={18} />
+                    <span>Export to Excel</span>
+                  </button>
+                </>
+              )}
             </div>
 
             {/* Filters */}
@@ -1163,6 +1680,10 @@ const SiteDetailPage = () => {
                     <table className="min-w-full divide-y divide-gray-300 border border-gray-300 text-sm">
                       <thead>
                         <tr className="bg-indigo-900 text-white">
+                          <th
+                            scope="col"
+                            className="p-2 border border-gray-300 text-sm font-semibold text-center"
+                          ></th>
                           <th
                             scope="col"
                             className="p-2 border border-gray-300 text-sm font-semibold text-center"
@@ -1377,137 +1898,186 @@ const SiteDetailPage = () => {
                             } border-b hover:bg-indigo-100 transition-all duration-200`}
                           >
                             <td className="p-2 text-center border border-gray-300 text-gray-800 text-sm whitespace-nowrap">
-                              {row.no}
+                              <input
+                                type="checkbox"
+                                checked={selectedRowNo === row.no}
+                                onChange={() => handleCheckboxChange(row.no)}
+                                className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
+                                disabled={isEditing && selectedRowNo !== row.no}
+                              />
                             </td>
                             <td className="p-2 text-center border border-gray-300 text-gray-800 text-sm whitespace-nowrap">
-                              {row.poPermit}
+                              {index + 1}
                             </td>
                             <td className="p-2 text-center border border-gray-300 text-gray-800 text-sm whitespace-nowrap">
-                              {row.poSnd}
+                              {displayValue(row.poPermit)}
                             </td>
                             <td className="p-2 text-center border border-gray-300 text-gray-800 text-sm whitespace-nowrap">
-                              {row.poImp}
+                              {displayValue(row.poSnd)}
                             </td>
                             <td className="p-2 text-center border border-gray-300 text-gray-800 text-sm whitespace-nowrap">
-                              {row.poSf}
+                              {displayValue(row.poImp)}
                             </td>
                             <td className="p-2 text-center border border-gray-300 text-gray-800 text-sm whitespace-nowrap">
-                              {row.poAdd}
+                              {displayValue(row.poSf)}
                             </td>
                             <td className="p-2 text-center border border-gray-300 text-gray-800 text-sm whitespace-nowrap">
-                              {row.siteId}
+                              {displayValue(row.poAdd)}
                             </td>
                             <td className="p-2 text-center border border-gray-300 text-gray-800 text-sm whitespace-nowrap">
-                              {row.siteName}
+                              {displayValue(row.siteId)}
+                            </td>
+                            <td className="p-2 text-center border border-gray-300 text-gray-800 text-sm whitespace-nowrap">
+                              {displayValue(row.siteName)}
                             </td>
                             <td 
                               className="p-2 text-center border border-gray-300 text-gray-800 text-sm whitespace-nowrap cursor-pointer hover:bg-blue-50 transition-colors duration-200"
                               onClick={() => router.push(`/project/rpm/site/preview?siteId=${row.siteId}&division=PERMIT`)}
                               title="Click to view Permit sections"
                             >
-                              {row.permitStatus}
+                              <div className="flex items-center justify-center space-x-1">
+                                {row.permitRejected && (
+                                  <div 
+                                    className="w-2 h-2 bg-red-500 rounded-full cursor-help"
+                                    title={`Reject Reason = ${row.permitRejectReason || "No reason provided"}`}
+                                  ></div>
+                                )}
+                                <span>{row.permitStatus}</span>
+                              </div>
                             </td>
                             <td 
                               className="p-2 text-center border border-gray-300 text-gray-800 text-sm whitespace-nowrap cursor-pointer hover:bg-blue-50 transition-colors duration-200"
                               onClick={() => router.push(`/project/rpm/site/preview?siteId=${row.siteId}&division=SND`)}
                               title="Click to view SND sections"
                             >
-                              {row.sndStatus}
+                              <div className="flex items-center justify-center space-x-1">
+                                {row.sndRejected && (
+                                  <div 
+                                    className="w-2 h-2 bg-red-500 rounded-full cursor-help"
+                                    title={`Reject Reason = ${row.sndRejectReason || "No reason provided"}`}
+                                  ></div>
+                                )}
+                                <span>{row.sndStatus}</span>
+                              </div>
                             </td>
                             <td 
                               className="p-2 text-center border border-gray-300 text-sm whitespace-nowrap text-black cursor-pointer hover:bg-blue-50 transition-colors duration-200"
                               onClick={() => router.push(`/project/rpm/site/preview?siteId=${row.siteId}&division=CW`)}
                               title="Click to view CW sections"
                             >
-                              {row.cwStatus}
+                              <div className="flex items-center justify-center space-x-1">
+                                {row.cwRejected && (
+                                  <div 
+                                    className="w-2 h-2 bg-red-500 rounded-full cursor-help"
+                                    title={`Reject Reason = ${row.cwRejectReason || "No reason provided"}`}
+                                  ></div>
+                                )}
+                                <span>{row.cwStatus}</span>
+                              </div>
                             </td>
                             <td 
                               className="p-2 text-center border border-gray-300 text-gray-800 text-sm whitespace-nowrap cursor-pointer hover:bg-blue-50 transition-colors duration-200"
                               onClick={() => router.push(`/project/rpm/site/preview?siteId=${row.siteId}&division=EL`)}
                               title="Click to view EL sections"
                             >
-                              {row.elStatus}
+                              <div className="flex items-center justify-center space-x-1">
+                                {row.elRejected && (
+                                  <div 
+                                    className="w-2 h-2 bg-red-500 rounded-full cursor-help"
+                                    title={`Reject Reason = ${row.elRejectReason || "No reason provided"}`}
+                                  ></div>
+                                )}
+                                <span>{row.elStatus}</span>
+                              </div>
                             </td>
                             <td 
                               className="p-2 text-center border border-gray-300 text-gray-800 text-sm whitespace-nowrap cursor-pointer hover:bg-blue-50 transition-colors duration-200"
                               onClick={() => router.push(`/project/rpm/site/preview?siteId=${row.siteId}&division=Document`)}
                               title="Click to view Document sections"
                             >
-                              {row.document}
+                              <div className="flex items-center justify-center space-x-1">
+                                {row.documentRejected && (
+                                  <div 
+                                    className="w-2 h-2 bg-red-500 rounded-full cursor-help"
+                                    title={`Reject Reason = ${row.documentRejectReason || "No reason provided"}`}
+                                  ></div>
+                                )}
+                                <span>{row.document}</span>
+                              </div>
                             </td>
                             <td className="p-2 text-center border border-gray-300 text-gray-800 text-sm whitespace-nowrap">
-                              {row.siteType}
+                              {displayValue(row.siteType)}
                             </td>
                             <td className="p-2 text-center border border-gray-300 text-gray-800 text-sm whitespace-nowrap">
-                              {row.region}
+                              {displayValue(row.region)}
                             </td>
                             <td className="p-2 text-center border border-gray-300 text-gray-800 text-sm whitespace-nowrap">
-                              {row.city}
+                              {displayValue(row.city)}
                             </td>
                             <td className="p-2 text-center border border-gray-300 text-gray-800 text-sm whitespace-nowrap">
-                              {row.ntpHp}
+                              {displayValue(row.ntpHp)}
                             </td>
                             <td className="p-2 text-center border border-gray-300 text-gray-800 text-sm whitespace-nowrap">
-                              {row.drmHp}
+                              {displayValue(row.drmHp)}
                             </td>
                             <td className="p-2 text-center border border-gray-300 text-gray-800 text-sm whitespace-nowrap">
-                              {row.rfsHp}
+                              {displayValue(row.rfsHp)}
                             </td>
                             <td className="p-2 text-center border border-gray-300 text-gray-800 text-sm whitespace-nowrap">
-                              {row.rpm}
+                              {displayValue(row.rpm)}
                             </td>
                             {/* Hapus kolom PIC utama */}
                             {/* Tambahan kolom PIC per kategori */}
                             <td className="p-2 text-center border border-gray-300 text-gray-800 text-sm whitespace-nowrap">
-                              {row.picPermit}
+                              {displayValue(row.picPermit)}
                             </td>
                             <td className="p-2 text-center border border-gray-300 text-gray-800 text-sm whitespace-nowrap">
-                              {row.picSnd}
+                              {displayValue(row.picSnd)}
                             </td>
                             <td className="p-2 text-center border border-gray-300 text-gray-800 text-sm whitespace-nowrap">
-                              {row.picCw}
+                              {displayValue(row.picCw)}
                             </td>
                             <td className="p-2 text-center border border-gray-300 text-gray-800 text-sm whitespace-nowrap">
-                              {row.picEl}
+                              {displayValue(row.picEl)}
                             </td>
                             <td className="p-2 text-center border border-gray-300 text-gray-800 text-sm whitespace-nowrap">
-                              {row.picDocument}
+                              {displayValue(row.picDocument)}
                             </td>
                             {/* Tambahan kolom Status per kategori */}
                             <td className="p-2 text-center border border-gray-300 text-gray-800 text-sm whitespace-nowrap">
-                              {row.statusPermit}
+                              {displayValue(row.statusPermit)}
                             </td>
                             <td className="p-2 text-center border border-gray-300 text-gray-800 text-sm whitespace-nowrap">
-                              {row.statusSnd}
+                              {displayValue(row.statusSnd)}
                             </td>
                             <td className="p-2 text-center border border-gray-300 text-gray-800 text-sm whitespace-nowrap">
-                              {row.statusCw}
+                              {displayValue(row.statusCw)}
                             </td>
                             <td className="p-2 text-center border border-gray-300 text-gray-800 text-sm whitespace-nowrap">
-                              {row.statusEl}
+                              {displayValue(row.statusEl)}
                             </td>
                             <td className="p-2 text-center border border-gray-300 text-gray-800 text-sm whitespace-nowrap">
-                              {row.statusDocument}
+                              {displayValue(row.statusDocument)}
                             </td>
                             <td className="p-2 text-center border border-gray-300 text-gray-800 text-sm whitespace-nowrap">
-                              {row.totalOps}
+                              {displayValue(row.totalOps)}
                             </td>
                             {/* Hapus kolom Status utama */}
 
                             <td className="p-2 text-center border border-gray-300 text-gray-800 text-sm whitespace-nowrap">
-                              {row.lastUpdate}
+                              {displayValue(row.lastUpdate)}
                             </td>
                             <td className="p-2 text-center border border-gray-300 text-gray-800 text-sm whitespace-nowrap">
                               <div className="flex justify-center items-center space-x-3">
                                 <button
-                                  onClick={() => router.push(`/project/rpm/site/preview?siteId=${row.siteId}`)}
+                                  onClick={() => router.push(`/project/rpm/site/preview?siteName=${encodeURIComponent(row.siteName)}`)}
                                   className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-all duration-200 text-sm font-medium shadow-sm"
                                 >
-                                  {row.operation}
+                                  {displayValue(row.operation)}
                                 </button>
                                 <button
                                   onClick={() => {
-                                    setSelectedSiteId(row.siteId);
+                                    setSelectedSiteName(row.siteName);
                                     setIsBOQModalOpen(true);
                                   }}
                                   className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-all duration-200 text-sm font-medium shadow-sm"
@@ -1533,80 +2103,207 @@ const SiteDetailPage = () => {
               itemsPerPage={25}
             />
 
-            {/* Remove edit form rendering */}
-            {/*
+            {/* Edit Form */}
             {isEditing && selectedRowNo !== null && (
               <div className="mt-6 bg-white rounded-xl shadow-sm p-6 border border-gray-100">
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                  Edit Site:{" "}
-                  {siteData.find((row) => row.no === selectedRowNo)?.siteId}
+                  Edit Site: {siteData.find((row) => row.no === selectedRowNo)?.siteId}
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">
-                      PO Permit
-                    </label>
+                    <label className="block text-sm font-medium text-gray-700">PO Permit</label>
                     <input
                       type="text"
                       value={formData.poPermit || ""}
-                      onChange={(e) =>
-                        handleInputChange("poPermit", e.target.value)
-                      }
+                      onChange={(e) => handleInputChange("poPermit", e.target.value)}
                       className="mt-1 border border-gray-300 rounded-md px-3 py-2 text-sm w-full focus:outline-none focus:ring-2 focus:ring-indigo-500 text-gray-800"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">
-                      PO SND
-                    </label>
+                    <label className="block text-sm font-medium text-gray-700">PO SND</label>
                     <input
                       type="text"
                       value={formData.poSnd || ""}
-                      onChange={(e) =>
-                        handleInputChange("poSnd", e.target.value)
-                      }
+                      onChange={(e) => handleInputChange("poSnd", e.target.value)}
                       className="mt-1 border border-gray-300 rounded-md px-3 py-2 text-sm w-full focus:outline-none focus:ring-2 focus:ring-indigo-500 text-gray-800"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">
-                      PO Imp
-                    </label>
+                    <label className="block text-sm font-medium text-gray-700">PO Imp</label>
                     <input
                       type="text"
                       value={formData.poImp || ""}
-                      onChange={(e) =>
-                        handleInputChange("poImp", e.target.value)
-                      }
+                      onChange={(e) => handleInputChange("poImp", e.target.value)}
                       className="mt-1 border border-gray-300 rounded-md px-3 py-2 text-sm w-full focus:outline-none focus:ring-2 focus:ring-indigo-500 text-gray-800"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">
-                      PO SF
-                    </label>
+                    <label className="block text-sm font-medium text-gray-700">PO SF</label>
                     <input
                       type="text"
                       value={formData.poSf || ""}
-                      onChange={(e) =>
-                        handleInputChange("poSf", e.target.value)
-                      }
+                      onChange={(e) => handleInputChange("poSf", e.target.value)}
                       className="mt-1 border border-gray-300 rounded-md px-3 py-2 text-sm w-full focus:outline-none focus:ring-2 focus:ring-indigo-500 text-gray-800"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">
-                      PO Add
-                    </label>
+                    <label className="block text-sm font-medium text-gray-700">PO Add</label>
                     <input
                       type="text"
                       value={formData.poAdd || ""}
-                      onChange={(e) =>
-                        handleInputChange("poAdd", e.target.value)
-                      }
+                      onChange={(e) => handleInputChange("poAdd", e.target.value)}
                       className="mt-1 border border-gray-300 rounded-md px-3 py-2 text-sm w-full focus:outline-none focus:ring-2 focus:ring-indigo-500 text-gray-800"
                     />
                   </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Site ID</label>
+                    <input
+                      type="text"
+                      value={formData.siteId || ""}
+                      onChange={(e) => handleInputChange("siteId", e.target.value)}
+                      className="mt-1 border border-gray-300 rounded-md px-3 py-2 text-sm w-full focus:outline-none focus:ring-2 focus:ring-indigo-500 text-gray-800"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Site Name</label>
+                    <input
+                      type="text"
+                      value={formData.siteName || ""}
+                      onChange={(e) => handleInputChange("siteName", e.target.value)}
+                      className="mt-1 border border-gray-300 rounded-md px-3 py-2 text-sm w-full focus:outline-none focus:ring-2 focus:ring-indigo-500 text-gray-800"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">NTP HP</label>
+                    <input
+                      type="text"
+                      value={formData.ntpHp || ""}
+                      onChange={(e) => handleInputChange("ntpHp", e.target.value)}
+                      className="mt-1 border border-gray-300 rounded-md px-3 py-2 text-sm w-full focus:outline-none focus:ring-2 focus:ring-indigo-500 text-gray-800"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">DRM HP</label>
+                    <input
+                      type="text"
+                      value={formData.drmHp || ""}
+                      onChange={(e) => handleInputChange("drmHp", e.target.value)}
+                      className="mt-1 border border-gray-300 rounded-md px-3 py-2 text-sm w-full focus:outline-none focus:ring-2 focus:ring-indigo-500 text-gray-800"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">RFS HP</label>
+                    <input
+                      type="text"
+                      value={formData.rfsHp || ""}
+                      onChange={(e) => handleInputChange("rfsHp", e.target.value)}
+                      className="mt-1 border border-gray-300 rounded-md px-3 py-2 text-sm w-full focus:outline-none focus:ring-2 focus:ring-indigo-500 text-gray-800"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">RPM</label>
+                    <select
+                      value={formData.rpm || ""}
+                      onChange={(e) => handleInputChange("rpm", e.target.value)}
+                      className="mt-1 border border-gray-300 rounded-md px-3 py-2 text-sm w-full focus:outline-none focus:ring-2 focus:ring-indigo-500 text-gray-800 bg-white"
+                    >
+                      <option value="">Select RPM</option>
+                      {rpmOptions.map((rpm) => (
+                        <option key={rpm} value={rpm}>{rpm}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">PIC Permit</label>
+                    <select
+                      value={formData.picPermit || ""}
+                      onChange={(e) => handleInputChange("picPermit", e.target.value)}
+                      className="mt-1 border border-gray-300 rounded-md px-3 py-2 text-sm w-full focus:outline-none focus:ring-2 focus:ring-indigo-500 text-gray-800 bg-white"
+                    >
+                      <option value="">Select PIC Permit</option>
+                      {divisionUsers['permit']?.map((user, index) => (
+                        <option key={index} value={user.name}>
+                          {user.name}
+                        </option>
+                      ))}
+                      {(!divisionUsers['permit'] || divisionUsers['permit'].length === 0) && (
+                        <option value="" disabled>No users found for Permit division</option>
+                      )}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">PIC SND</label>
+                    <select
+                      value={formData.picSnd || ""}
+                      onChange={(e) => handleInputChange("picSnd", e.target.value)}
+                      className="mt-1 border border-gray-300 rounded-md px-3 py-2 text-sm w-full focus:outline-none focus:ring-2 focus:ring-indigo-500 text-gray-800 bg-white"
+                    >
+                      <option value="">Select PIC SND</option>
+                      {divisionUsers['snd']?.map((user, index) => (
+                        <option key={index} value={user.name}>
+                          {user.name}
+                        </option>
+                      ))}
+                      {(!divisionUsers['snd'] || divisionUsers['snd'].length === 0) && (
+                        <option value="" disabled>No users found for SND division</option>
+                      )}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">PIC CW</label>
+                    <select
+                      value={formData.picCw || ""}
+                      onChange={(e) => handleInputChange("picCw", e.target.value)}
+                      className="mt-1 border border-gray-300 rounded-md px-3 py-2 text-sm w-full focus:outline-none focus:ring-2 focus:ring-indigo-500 text-gray-800 bg-white"
+                    >
+                      <option value="">Select PIC CW</option>
+                      {divisionUsers['cw']?.map((user, index) => (
+                        <option key={index} value={user.name}>
+                          {user.name}
+                        </option>
+                      ))}
+                      {(!divisionUsers['cw'] || divisionUsers['cw'].length === 0) && (
+                        <option value="" disabled>No users found for CW division</option>
+                      )}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">PIC EL</label>
+                    <select
+                      value={formData.picEl || ""}
+                      onChange={(e) => handleInputChange("picEl", e.target.value)}
+                      className="mt-1 border border-gray-300 rounded-md px-3 py-2 text-sm w-full focus:outline-none focus:ring-2 focus:ring-indigo-500 text-gray-800 bg-white"
+                    >
+                      <option value="">Select PIC EL</option>
+                      {divisionUsers['el']?.map((user, index) => (
+                        <option key={index} value={user.name}>
+                          {user.name}
+                        </option>
+                      ))}
+                      {(!divisionUsers['el'] || divisionUsers['el'].length === 0) && (
+                        <option value="" disabled>No users found for EL division</option>
+                      )}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">PIC Document</label>
+                    <select
+                      value={formData.picDocument || ""}
+                      onChange={(e) => handleInputChange("picDocument", e.target.value)}
+                      className="mt-1 border border-gray-300 rounded-md px-3 py-2 text-sm w-full focus:outline-none focus:ring-2 focus:ring-indigo-500 text-gray-800 bg-white"
+                    >
+                      <option value="">Select PIC Document</option>
+                      {divisionUsers['document']?.map((user, index) => (
+                        <option key={index} value={user.name}>
+                          {user.name}
+                        </option>
+                      ))}
+                      {(!divisionUsers['document'] || divisionUsers['document'].length === 0) && (
+                        <option value="" disabled>No users found for Document division</option>
+                      )}
+                    </select>
+                  </div>
+
                 </div>
                 <div className="mt-6 flex items-center justify-end space-x-3">
                   <button
@@ -1626,16 +2323,15 @@ const SiteDetailPage = () => {
                 </div>
               </div>
             )}
-            */}
           </div>
         </div>
       </div>
       {/* BOQ Details Modal */}
-      {selectedSiteId && (
+      {selectedSiteName && (
         <BOQDetailsModal
           isOpen={isBOQModalOpen}
           onClose={() => setIsBOQModalOpen(false)}
-          siteId={selectedSiteId}
+          siteName={selectedSiteName}
         />
       )}
     </div>

@@ -75,6 +75,7 @@ const SitePreviewContent = () => {
   const { activeTab, setActiveTab, isSidebarOpen, setIsSidebarOpen, user } = useSidebar();
   const searchParams = useSearchParams();
   const siteIdParam = searchParams.get('siteId');
+  const siteNameParam = searchParams.get('siteName');
   const divisionParam = searchParams.get('division');
   const validDivisions = ["PERMIT", "SND", "CW", "EL", "Document", "Material"];
   const initialDivision = divisionParam && validDivisions.includes(divisionParam) ? divisionParam : "PERMIT";
@@ -135,6 +136,18 @@ const SitePreviewContent = () => {
   const [boqData, setBoqData] = useState<BOQFileData | null>(null);
   // Add state for total HP calculation
   const [totalHP, setTotalHP] = useState<number>(0);
+
+  // Initialize state from URL parameters
+  useEffect(() => {
+    if (siteNameParam) {
+      setSelectedSiteName(siteNameParam);
+      console.log('Setting selectedSiteName from URL parameter:', siteNameParam);
+    }
+    if (siteIdParam) {
+      setSelectedSiteId(siteIdParam);
+      console.log('Setting selectedSiteId from URL parameter:', siteIdParam);
+    }
+  }, [siteNameParam, siteIdParam]);
 
   const toggleSection = useCallback((section: string) => {
     setIsOpen((prev) => ({ ...prev, [section]: !prev[section] }));
@@ -563,35 +576,45 @@ const SitePreviewContent = () => {
 
   // Add filteredSites state
   const [filteredSites, setFilteredSites] = useState<SiteInfo[]>([]);
-  // Fetch and filter sites by logged-in user (PIC)
+  // Fetch all sites from tasks collection
   useEffect(() => {
     const fetchFilteredSites = async () => {
-      if (!user?.name) {
+      try {
+        // 1. Fetch all tasks
+        const tasksSnapshot = await getDocs(collection(db, "tasks"));
+        const uniqueSites = new Map<string, SiteInfo>();
+
+        // 2. Extract unique site information from tasks
+        tasksSnapshot.docs.forEach(doc => {
+          const data = doc.data();
+          const siteId = data.siteId;
+          const siteName = data.siteName;
+          const region = data.region;
+          const city = data.city;
+
+          if (siteId && siteName) {
+            const key = `${siteId}-${siteName}`;
+            if (!uniqueSites.has(key)) {
+              uniqueSites.set(key, {
+                siteId,
+                siteName,
+                region: region || "",
+                city: city || ""
+              });
+            }
+          }
+        });
+
+        // Convert Map to array and set filtered sites
+        const filteredSitesList = Array.from(uniqueSites.values());
+        setFilteredSites(filteredSitesList);
+      } catch (error) {
+        console.error("Error fetching sites:", error);
         setFilteredSites([]);
-        return;
       }
-      // 1. Fetch all tasks where pic matches user.name (case-insensitive)
-      const tasksSnapshot = await getDocs(collection(db, "tasks"));
-      const userNameLower = user.name.toLowerCase();
-      const userTasks = tasksSnapshot.docs.filter(doc => {
-        const data = doc.data();
-        return (data.pic || "").toLowerCase() === userNameLower;
-      });
-      // 2. Get unique siteIds from filtered tasks
-      const siteIds = Array.from(new Set(userTasks.map(doc => doc.data().siteId)));
-      if (siteIds.length === 0) {
-        setFilteredSites([]);
-        return;
-      }
-      // 3. Fetch all sites and filter by siteId
-      const sitesSnapshot = await getDocs(collection(db, "site"));
-      const filtered = sitesSnapshot.docs
-        .map(doc => doc.data() as SiteInfo)
-        .filter(site => siteIds.includes(site.siteId));
-      setFilteredSites(filtered);
     };
     fetchFilteredSites();
-  }, [user]);
+  }, []);
 
   // Calculate total HP based on selected division and site filters
   useEffect(() => {

@@ -50,19 +50,6 @@ function AccordionSection({ title, children, open, onClick }: { title: string, c
   );
 }
 
-// Helper function to convert Firebase timestamp to string
-const convertTimestampToString = (timestamp: any): string => {
-  if (!timestamp) return '-';
-  if (typeof timestamp === 'string') return timestamp;
-  if (timestamp.toDate && typeof timestamp.toDate === 'function') {
-    return timestamp.toDate().toLocaleDateString();
-  }
-  if (timestamp.seconds && timestamp.nanoseconds) {
-    return new Date(timestamp.seconds * 1000).toLocaleDateString();
-  }
-  return '-';
-};
-
 // Employee Table Component with Pagination
 function EmployeeTable({ data, onStatusUpdate }: { data: EmployeeData[], onStatusUpdate?: (id: string, newStatus: 'active' | 'inactive') => void }) {
   const [currentPage, setCurrentPage] = React.useState(1);
@@ -286,7 +273,6 @@ const EmployeeDataPage: React.FC = () => {
         )
       );
 
-      console.log(`Employee ${id} status updated to ${newStatus}`);
     } catch (error) {
       console.error('Error updating employee status:', error);
       alert('Failed to update employee status. Please try again.');
@@ -525,12 +511,28 @@ const EmployeeDataPage: React.FC = () => {
       const employees: EmployeeData[] = [];
       const divisionSet = new Set<string>();
       
+      // Helper function to convert Firestore timestamp to string
+      const convertTimestampToString = (timestamp: any): string => {
+        if (!timestamp) return '-';
+        if (typeof timestamp === 'string') return timestamp;
+        if (timestamp.seconds) {
+          // Convert Firestore timestamp to date string
+          const date = new Date(timestamp.seconds * 1000);
+          return date.toLocaleDateString('en-GB', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric'
+          });
+        }
+        return '-';
+      };
+      
       usersSnapshot.forEach((doc) => {
         const data = doc.data();
         if (data.role && data.name) {
           const division = data.division || data.department || data.role || '-';
           divisionSet.add(division);
-
+          
           employees.push({
             id: doc.id,
             nik: data.nik || data.employeeId || '-',
@@ -552,11 +554,9 @@ const EmployeeDataPage: React.FC = () => {
 
       // Use Firebase data as primary, add mock data only if no Firebase data exists
       if (employees.length > 0) {
-        console.log('Firebase users data:', employees);
         setAllEmployees(employees);
       } else {
         // Add mock data only if no data from Firebase
-        console.log('No Firebase data found, using mock data');
         setAllEmployees(mockEmployees);
         // Set divisions from mock data
         const mockDivisions = [...new Set(mockEmployees.map(emp => emp.division))].sort();

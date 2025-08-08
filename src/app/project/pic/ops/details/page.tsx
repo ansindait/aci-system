@@ -4,8 +4,10 @@ import React, { useState, useCallback, useEffect } from 'react';
 import Sidebar from '@/app/components/Sidebar'; // Assuming Sidebar component exists
 import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
-import { collection, getDocs, doc } from 'firebase/firestore';
+import { collection, getDocs, doc, collectionGroup } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { onAuthStateChanged } from 'firebase/auth';
+import { auth } from '@/lib/firebase';
 
 // A placeholder for the ChevronDown icon
 const ChevronDownIcon = (props: React.SVGProps<SVGSVGElement>) => (
@@ -18,8 +20,8 @@ const ChevronDownIcon = (props: React.SVGProps<SVGSVGElement>) => (
 interface OpenSectionsState {
   permit: boolean;
   snd: boolean;
-  civilWork: boolean;
-  elJointer: boolean;
+  cw: boolean;
+  el: boolean;
   document: boolean;
 }
 
@@ -191,18 +193,19 @@ const OpsDetailsPage = () => {
   const [openSections, setOpenSections] = useState<OpenSectionsState>({
     permit: true,
     snd: false,
-    civilWork: false,
-    elJointer: false,
+    cw: false,
+    el: false,
     document: false,
   });
   const [opsData, setOpsData] = useState({
     permit: [] as TableData[],
     snd: [] as TableData[],
-    civilWork: [] as TableData[],
-    elJointer: [] as TableData[],
+    cw: [] as TableData[],
+    el: [] as TableData[],
     document: [] as TableData[],
   });
   const [loading, setLoading] = useState(true);
+  const [userDivision, setUserDivision] = useState<string | null>(null);
 
   // Tambahkan state untuk filter
   const [filters, setFilters] = useState({
@@ -220,88 +223,56 @@ const OpsDetailsPage = () => {
   useEffect(() => {
     const fetchAllRequestOps = async () => {
       setLoading(true);
+      // Fetch all tasks for parent mapping
       const tasksSnapshot = await getDocs(collection(db, 'tasks'));
-      const allOps = {
-        permit: [] as TableData[],
-        snd: [] as TableData[],
-        civilWork: [] as TableData[],
-        elJointer: [] as TableData[],
-        document: [] as TableData[],
-      };
-      const allRequestOpsArr: any[] = [];
-      for (const taskDoc of tasksSnapshot.docs) {
-        const taskData = taskDoc.data();
-        // request_ops
-        const requestOpsRef = collection(doc(db, 'tasks', taskDoc.id), 'request_ops');
-        const requestOpsSnapshot = await getDocs(requestOpsRef);
-        requestOpsSnapshot.forEach((docSnap) => {
-          const data = docSnap.data();
-          if (data.status_ops === 'approved_top' || data.status_ops === 'done') {
-            allRequestOpsArr.push({
-              ...data,
-              requestType: (data.requestType || '').toUpperCase(),
-              pic: data.picName || data.pic || '-',
-              parent: {
-                siteId: taskData.siteId || '',
-                region: taskData.region || '',
-                city: taskData.city || '',
-                siteName: taskData.siteName || '',
-                date: data.date || '',
-                division: (data.division || '').toLowerCase(),
-              },
-              division: (data.division || '').toLowerCase(),
-            });
-          }
+      const taskParentMap = new Map();
+      tasksSnapshot.docs.forEach(taskDoc => {
+        const data = taskDoc.data();
+        taskParentMap.set(taskDoc.id, {
+          siteId: data.siteId || '',
+          region: data.region || '',
+          city: data.city || '',
+          siteName: data.siteName || '',
+          division: (data.division || '').toLowerCase(),
         });
-        // request_ops_rpm
-        const requestOpsRpmRef = collection(doc(db, 'tasks', taskDoc.id), 'request_ops_rpm');
-        const requestOpsRpmSnapshot = await getDocs(requestOpsRpmRef);
-        requestOpsRpmSnapshot.forEach((docSnap) => {
-          const data = docSnap.data();
-          if (data.status_ops === 'approved_top' || data.status_ops === 'done') {
-            allRequestOpsArr.push({
-              ...data,
-              requestType: (data.requestType || '').toUpperCase(),
-              pic: data.picName || data.pic || '-',
-              parent: {
-                siteId: taskData.siteId || '',
-                region: taskData.region || '',
-                city: taskData.city || '',
-                siteName: taskData.siteName || '',
-                date: data.date || '',
-                division: (data.division || '').toLowerCase(),
-              },
-              division: (data.division || '').toLowerCase(),
-            });
-          }
-        });
-        // request_ops_rpm root
-        const requestOpsRpmRootSnapshot = await getDocs(collection(db, 'request_ops_rpm'));
-        requestOpsRpmRootSnapshot.forEach((docSnap) => {
-          const data = docSnap.data();
-          if (data.status_ops === 'approved_top' || data.status_ops === 'done') {
-            allRequestOpsArr.push({
-              ...data,
-              requestType: (data.requestType || '').toUpperCase(),
-              pic: data.picName || data.pic || '-',
-              parent: {
-                siteId: data.siteId || '',
-                region: data.region || '',
-                city: data.city || '',
-                siteName: data.siteName || '',
-                date: data.date || '',
-                division: (data.division || '').toLowerCase(),
-              },
-              division: (data.division || '').toLowerCase(),
-            });
-          }
-        });
-      }
-      setOpsData(allOps);
+      });
+      // Fetch all request_ops in one go
+      const requestOpsSnapshot = await getDocs(collectionGroup(db, 'request_ops'));
+      const allRequestOpsArr = requestOpsSnapshot.docs.map(docSnap => {
+        const data = docSnap.data();
+        // Get parent taskId from docSnap.ref.parent.parent.id
+        const parentTaskId = docSnap.ref.parent.parent?.id;
+        const parentInfo = parentTaskId ? taskParentMap.get(parentTaskId) || {} : {};
+        return {
+          ...data,
+          requestType: (data.requestType || '').toUpperCase(),
+          pic: data.picName || data.pic || '-',
+          parent: {
+            ...parentInfo,
+            date: data.date || '',
+            division: (data.division || parentInfo.division || '').toLowerCase(),
+          },
+          division: (data.division || parentInfo.division || '').toLowerCase(),
+        };
+      });
       setAllRequestOps(allRequestOpsArr);
       setLoading(false);
     };
     fetchAllRequestOps();
+  }, []);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        const userDocRef = doc(db, 'users', user.uid);
+        const userDoc = await getDocs(collection(db, 'users'));
+        const userData = userDoc.docs.find((docSnap) => docSnap.id === user.uid)?.data();
+        if (userData && userData.division) {
+          setUserDivision(userData.division.toLowerCase());
+        }
+      }
+    });
+    return () => unsubscribe();
   }, []);
 
   // Filter logic
@@ -317,14 +288,15 @@ const OpsDetailsPage = () => {
         (!date || (item.parent.date || '').includes(date)) &&
         (!pic || (item.pic || '').toLowerCase().includes(pic.toLowerCase()))
       );
-    });
+    })
+    .filter(item => !userDivision || item.division === userDivision); // Tambahkan filter division user
 
   // Group filtered data by division
   const filteredOpsData = {
     permit: filteredRequestOps.filter((item) => item.division === 'permit'),
     snd: filteredRequestOps.filter((item) => item.division === 'snd'),
-    civilWork: filteredRequestOps.filter((item) => item.division === 'civilwork' || item.division === 'civil work'),
-    elJointer: filteredRequestOps.filter((item) => item.division === 'eljointer' || item.division === 'el/jointer'),
+    cw: filteredRequestOps.filter((item) => item.division === 'cw' || item.division === 'cw'),
+    el: filteredRequestOps.filter((item) => item.division === 'el' || item.division === 'el/'),
     document: filteredRequestOps.filter((item) => item.division === 'document'),
   };
 
@@ -332,8 +304,8 @@ const OpsDetailsPage = () => {
   const totalFiltered = [
     ...filteredOpsData.permit,
     ...filteredOpsData.snd,
-    ...filteredOpsData.civilWork,
-    ...filteredOpsData.elJointer,
+    ...filteredOpsData.cw,
+    ...filteredOpsData.el,
     ...filteredOpsData.document
   ].reduce((sum, item) => {
     let nominal = item.ops;
@@ -353,8 +325,8 @@ const OpsDetailsPage = () => {
     const allData = [
       ...filteredOpsData.permit.map(item => ({ section: 'Permit', ...item })),
       ...filteredOpsData.snd.map(item => ({ section: 'SND', ...item })),
-      ...filteredOpsData.civilWork.map(item => ({ section: 'Civil Work', ...item })),
-      ...filteredOpsData.elJointer.map(item => ({ section: 'EL/Jointer', ...item })),
+      ...filteredOpsData.cw.map(item => ({ section: 'cw', ...item })),
+      ...filteredOpsData.el.map(item => ({ section: 'EL/', ...item })),
       ...filteredOpsData.document.map(item => ({ section: 'Document', ...item })),
     ];
     // Buat header dan data array
@@ -486,13 +458,13 @@ const OpsDetailsPage = () => {
           ) : (
             (Object.keys(openSections) as Array<keyof OpenSectionsState>).map((sectionKey) => {
               const title = sectionKey.replace(/([A-Z])/g, ' $1').replace(/^(.)/, (c) => c.toUpperCase());
-              const formattedTitle = title === 'Snd' ? 'SND' : title === 'El Jointer' ? 'EL/Jointer' : title.replace('Work', ' Work');
+              const formattedTitle = title === 'Snd' ? 'SND' : title === 'El ' ? 'EL/' : title.replace('Work', ' Work');
               // Use filteredOpsData for each section
               let sectionData: TableData[] = [];
               if (sectionKey === 'permit') sectionData = filteredOpsData.permit;
               else if (sectionKey === 'snd') sectionData = filteredOpsData.snd;
-              else if (sectionKey === 'civilWork') sectionData = filteredOpsData.civilWork;
-              else if (sectionKey === 'elJointer') sectionData = filteredOpsData.elJointer;
+              else if (sectionKey === 'cw') sectionData = filteredOpsData.cw;
+              else if (sectionKey === 'el') sectionData = filteredOpsData.el;
               else if (sectionKey === 'document') sectionData = filteredOpsData.document;
               return (
                 <div key={sectionKey} className="bg-white rounded-lg shadow-sm mb-4">
@@ -506,7 +478,7 @@ const OpsDetailsPage = () => {
                   {openSections[sectionKey] && (
                     <DataTable data={sectionData} />
                   )}
-                  {openSections[sectionKey] && !['permit', 'snd', 'civilWork', 'elJointer', 'document'].includes(sectionKey) && (
+                  {openSections[sectionKey] && !['permit', 'snd', 'cw', 'el', 'document'].includes(sectionKey) && (
                     <div className="p-4">
                       <p>Content for {formattedTitle} goes here...</p>
                     </div>

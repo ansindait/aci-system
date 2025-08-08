@@ -11,6 +11,7 @@ interface ApprovalData {
   parentTaskId: string;
   date: string;
   activityId: string;
+  siteId: string;
   siteName: string;
   picName: string;
   rpm: string;
@@ -22,6 +23,7 @@ interface ApprovalData {
   status_ops: string;
   region: string;
   city: string;
+  detailPlan: string;
 }
 
 const toSelectOptions = (arr: string[]) => arr.map(opt => ({ value: opt, label: opt }));
@@ -77,7 +79,8 @@ const ApprovalOpsPage = () => {
                  parentTaskId: taskDoc.id,
                  date: data.date || '',
                  activityId: data.activityId || '',
-                 siteName: data.siteName || '',
+                 siteId: data.siteId || taskData.siteId || '',
+                 siteName: data.siteName || taskData.siteName || '',
                  picName: data.picName || data.pic || '',
                  rpm: data.rpm || taskData.rpm || '',
                  division: data.division || '',
@@ -86,8 +89,9 @@ const ApprovalOpsPage = () => {
                  bankNumber: data.bankNo || data.bankNumber || taskData.bankNumber || '',
                  total: data.ops || '',
                  status_ops: data.status_ops || '',
-                 region: data.region || '',
-                 city: data.city || '',
+                 region: data.region || taskData.region || '',
+                 city: data.city || taskData.city || '',
+                 detailPlan: data.detailPlan || '',
                });
              }
           });
@@ -133,19 +137,20 @@ const ApprovalOpsPage = () => {
     const formattedData = filteredApprovalData.map(item => ({
       'Date': item.date,
       'Activity ID': item.activityId,
+      'Site ID': item.siteId,
       'Site Name': item.siteName,
+      'City': item.city,
+      'Activity Category': item.division,
+      'Detail Plan': item.detailPlan,
       'PIC Name': item.picName,
-      'RPM Name': item.rpm,
-      'Division': item.division,
+      'Nominal': item.total,
       'Type Request': item.requestType,
       'Bank': item.bank,
       'Bank Number': item.bankNumber,
-      'Nominal': item.total,
       'Status': item.status_ops === 'approved_top' ? 'Approved Top' :
                item.status_ops === 'done' ? 'Done' :
                item.status_ops === 'rejected' ? 'Rejected' :
                item.status_ops,
-      'City': item.city
     }));
 
     const worksheet = XLSX.utils.json_to_sheet(formattedData);
@@ -156,7 +161,10 @@ const ApprovalOpsPage = () => {
     const columnWidths = [
       { wch: 15 }, // Date
       { wch: 20 }, // Activity ID
+      { wch: 20 }, // Site ID
       { wch: 25 }, // Site Name
+      { wch: 20 }, // City
+      { wch: 20 }, // Detail Plan
       { wch: 20 }, // PIC Name
       { wch: 20 }, // RPM Name
       { wch: 15 }, // Division
@@ -253,8 +261,11 @@ const ApprovalOpsPage = () => {
               <thead className="bg-gray-50 text-gray-500 font-bold uppercase">
                 <tr>
                   <th className="px-4 py-3">Date</th>
+                  <th className="px-4 py-3">Site ID</th>
                   <th className="px-4 py-3">Activity ID</th>
                   <th className="px-4 py-3">Site Name</th>
+                  <th className="px-4 py-3">City</th>
+                  <th className="px-4 py-3">Detail Plan</th>
                   <th className="px-4 py-3">PIC Name</th>
                   <th className="px-4 py-3">RPM Name</th>
                   <th className="px-4 py-3">Division</th>
@@ -287,14 +298,17 @@ const ApprovalOpsPage = () => {
                   currentItems.map((item, index) => (
                     <tr key={index} className="border-b border-gray-200 hover:bg-gray-50">
                       <td className="px-4 py-3">{item.date}</td>
+                      <td className="px-4 py-3">{item.siteId}</td>
                       <td className="px-4 py-3">{item.activityId}</td>
                       <td className="px-4 py-3">{item.siteName}</td>
+                      <td className="px-4 py-3">{item.city}</td>
+                      <td className="px-4 py-3">{item.detailPlan}</td>
                       <td className="px-4 py-3">{item.picName}</td>
                       <td className="px-4 py-3">{item.rpm}</td>
-                                           <td className="px-4 py-3">{item.division}</td>
-                     <td className="px-4 py-3">{item.requestType}</td>
-                     <td className="px-4 py-3">{item.bank}</td>
-                                           <td className="px-4 py-3">{item.bankNumber}</td>
+                      <td className="px-4 py-3">{item.division}</td>
+                      <td className="px-4 py-3">{item.requestType}</td>
+                      <td className="px-4 py-3">{item.bank}</td>
+                      <td className="px-4 py-3">{item.bankNumber}</td>
                      <td className="px-4 py-3 font-semibold text-gray-800">{item.total}</td>
                       <td className="px-4 py-3">
                         <span className={`px-3 py-1 rounded-full text-xs font-bold ${item.status_ops === 'approved_top' ? 'bg-blue-500 text-white' : item.status_ops === 'done' ? 'bg-green-500 text-white' : item.status_ops === 'rejected' ? 'bg-red-500 text-white' : 'bg-gray-300 text-gray-800'}`}>{item.status_ops}</span>

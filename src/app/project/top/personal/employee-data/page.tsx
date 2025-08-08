@@ -94,9 +94,21 @@ const PersonalInfoPage = () => {
       <div className="flex-1 p-6 overflow-auto">
         <div className="max-w-[1920px] mx-auto">
           {/* Header */}
-          <div className="flex items-center justify-center mb-6">
-            <img src="/logo.jpeg" alt="Ansinda Logo" className="h-20 mr-6" />
-            <h1 className="text-5xl font-bold text-black text-center">Personal Information</h1>
+          <div className="rounded-xl p-4 mb-6">
+            <div className="flex flex-col sm:flex-row sm:items-center text-center sm:text-left">
+              <div className="flex items-center justify-center sm:justify-start w-full sm:w-auto mb-4 sm:mb-0">
+                <img
+                  src="/logo.jpeg"
+                  alt="Ansinda Logo"
+                  className="h-20 w-auto"
+                />
+              </div>
+              <div className="flex-1 flex justify-center sm:justify-center">
+                <h2 className="text-3xl font-bold text-black">
+                  Employee Data
+                </h2>
+              </div>
+            </div>
           </div>
 
           {/* Filters/Search */}
@@ -158,10 +170,10 @@ const PersonalInfoPage = () => {
                       currentItems.map((row, idx) => (
                         <tr key={idx} className="text-sm text-center text-black">
                           <td className="px-3 py-2 border-b border-gray-300 text-black">{row.no || indexOfFirstItem + idx + 1}</td>
-                          <td className="px-3 py-2 border-b border-gray-300">{row.employeeId || '-'}</td>
+                          <td className="px-3 py-2 border-b border-gray-300">{row.nik || '-'}</td>
                           <td className="px-3 py-2 border-b border-gray-300">{row.name || '-'}</td>
                           <td className="px-3 py-2 border-b border-gray-300">{row.position || '-'}</td>
-                          <td className="px-3 py-2 border-b border-gray-300">{row.joinDate || '-'}</td>
+                          <td className="px-3 py-2 border-b border-gray-300">{row['join date'] || '-'}</td>
                           <td className="px-3 py-2 border-b border-gray-300">{row.phone || '-'}</td>
                           <td className="px-3 py-2 border-b border-gray-300 underline text-blue-700 cursor-pointer">{row.email || '-'}</td>
                           <td className="px-3 py-2 border-b border-gray-300">{row.division || '-'}</td>

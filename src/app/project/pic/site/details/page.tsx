@@ -44,7 +44,23 @@ async function testFirebaseConnection() {
 }
 
 // Backend logic for progress and status
-async function getSiteProgress(siteId: string, siteName?: string): Promise<{ Permit: string; SND: string; CW: string; EL: string; Document: string }> {
+async function getSiteProgress(siteId: string, siteName?: string): Promise<{ 
+  Permit: string; 
+  SND: string; 
+  CW: string; 
+  EL: string; 
+  Document: string;
+  PermitRejected: boolean;
+  SNDRejected: boolean;
+  CWRejected: boolean;
+  ELRejected: boolean;
+  DocumentRejected: boolean;
+  PermitRejectReason: string;
+  SNDRejectReason: string;
+  CWRejectReason: string;
+  ELRejectReason: string;
+  DocumentRejectReason: string;
+}> {
   try {
     // Find all task documents by siteId or siteName (tanpa filter division)
     let q;
@@ -58,7 +74,17 @@ async function getSiteProgress(siteId: string, siteName?: string): Promise<{ Per
         SND: "0/0", 
         CW: "0/0",
         EL: "0/0",
-        Document: "0/0"
+        Document: "0/0",
+        PermitRejected: false,
+        SNDRejected: false,
+        CWRejected: false,
+        ELRejected: false,
+        DocumentRejected: false,
+        PermitRejectReason: "",
+        SNDRejectReason: "",
+        CWRejectReason: "",
+        ELRejectReason: "",
+        DocumentRejectReason: ""
       };
     }
     const snap = await getDocs(q);
@@ -68,7 +94,17 @@ async function getSiteProgress(siteId: string, siteName?: string): Promise<{ Per
         SND: "0/0",
         CW: "0/0", 
         EL: "0/0",
-        Document: "0/0"
+        Document: "0/0",
+        PermitRejected: false,
+        SNDRejected: false,
+        CWRejected: false,
+        ELRejected: false,
+        DocumentRejected: false,
+        PermitRejectReason: "",
+        SNDRejectReason: "",
+        CWRejectReason: "",
+        ELRejectReason: "",
+        DocumentRejectReason: ""
       };
     }
     // Gabungkan semua sections dari semua dokumen tasks dengan siteName sama
@@ -254,11 +290,41 @@ async function getSiteProgress(siteId: string, siteName?: string): Promise<{ Per
       Document: { uploaded: 0, target: 0 }
     };
 
+    // Track rejected status for each division
+    const divisionRejected: { [key: string]: boolean } = {
+      PERMIT: false,
+      SND: false,
+      CW: false,
+      EL: false,
+      Document: false
+    };
+
+    // Track reject reasons for each division
+    const divisionRejectReasons: { [key: string]: string[] } = {
+      PERMIT: [],
+      SND: [],
+      CW: [],
+      EL: [],
+      Document: []
+    };
+
     // Process each section
     sectionList.forEach(({ title, division }) => {
       const sectionName = title.replace(/^[A-Z]+\.\s*/, "");
       const uploads = allSections.filter((s: any) => s.section === sectionName);
       const uploadedCount = uploads.length;
+      
+      // Check for rejected sections in this division
+      const rejectedSections = uploads.filter((s: any) => s.status_task === "Rejected");
+      if (rejectedSections.length > 0) {
+        divisionRejected[division] = true;
+        // Collect reject reasons
+        rejectedSections.forEach((section: any) => {
+          if (section.reject_reason) {
+            divisionRejectReasons[division].push(section.reject_reason);
+          }
+        });
+      }
       
       // Calculate target based on BOQ data or hardcoded values
       let target = 1; // Default value
@@ -298,7 +364,17 @@ async function getSiteProgress(siteId: string, siteName?: string): Promise<{ Per
       SND: `${divisionProgress.SND.uploaded}/${divisionProgress.SND.target}`,
       CW: `${divisionProgress.CW.uploaded}/${divisionProgress.CW.target}`,
       EL: `${divisionProgress.EL.uploaded}/${divisionProgress.EL.target}`,
-      Document: `${divisionProgress.Document.uploaded}/${divisionProgress.Document.target}`
+      Document: `${divisionProgress.Document.uploaded}/${divisionProgress.Document.target}`,
+      PermitRejected: divisionRejected.PERMIT,
+      SNDRejected: divisionRejected.SND,
+      CWRejected: divisionRejected.CW,
+      ELRejected: divisionRejected.EL,
+      DocumentRejected: divisionRejected.Document,
+      PermitRejectReason: divisionRejectReasons.PERMIT.join("; "),
+      SNDRejectReason: divisionRejectReasons.SND.join("; "),
+      CWRejectReason: divisionRejectReasons.CW.join("; "),
+      ELRejectReason: divisionRejectReasons.EL.join("; "),
+      DocumentRejectReason: divisionRejectReasons.Document.join("; ")
     };
   } catch (error) {
     return {
@@ -306,7 +382,17 @@ async function getSiteProgress(siteId: string, siteName?: string): Promise<{ Per
       SND: "0/0",
       CW: "0/0",
       EL: "0/0",
-      Document: "0/0"
+      Document: "0/0",
+      PermitRejected: false,
+      SNDRejected: false,
+      CWRejected: false,
+      ELRejected: false,
+      DocumentRejected: false,
+      PermitRejectReason: "",
+      SNDRejectReason: "",
+      CWRejectReason: "",
+      ELRejectReason: "",
+      DocumentRejectReason: ""
     };
   }
   // Final fallback return to satisfy linter
@@ -315,7 +401,17 @@ async function getSiteProgress(siteId: string, siteName?: string): Promise<{ Per
     SND: "0/0",
     CW: "0/0",
     EL: "0/0",
-    Document: "0/0"
+    Document: "0/0",
+    PermitRejected: false,
+    SNDRejected: false,
+    CWRejected: false,
+    ELRejected: false,
+    DocumentRejected: false,
+    PermitRejectReason: "",
+    SNDRejectReason: "",
+    CWRejectReason: "",
+    ELRejectReason: "",
+    DocumentRejectReason: ""
   };
 }
 function getSiteStatus(progress: { Permit: string; SND: string; CW: string; EL: string; Document: string }): string {
@@ -619,6 +715,18 @@ interface SiteData {
   statusEl: string;
   statusDocument: string;
   totalOps: string;
+  // Rejected status fields
+  permitRejected: boolean;
+  sndRejected: boolean;
+  cwRejected: boolean;
+  elRejected: boolean;
+  documentRejected: boolean;
+  // Reject reason fields
+  permitRejectReason: string;
+  sndRejectReason: string;
+  cwRejectReason: string;
+  elRejectReason: string;
+  documentRejectReason: string;
   // Tambahan agar mapping tidak error
   division?: string;
   pic?: string;
@@ -629,7 +737,7 @@ const SiteDetailPage = () => {
   const [isLoading, setIsLoading] = useState(false);
   // Modal state for BOQ details
   const [isBOQModalOpen, setIsBOQModalOpen] = useState(false);
-  const [selectedSiteId, setSelectedSiteId] = useState<string | null>(null);
+  const [selectedSiteName, setSelectedSiteName] = useState<string | null>(null);
 
   const [siteData, setSiteData] = useState<SiteData[]>([]);
   const [users, setUsers] = useState<any[]>([]); // Simpan semua user
@@ -814,20 +922,26 @@ const SiteDetailPage = () => {
           statusEl: getLastSectionName(allSections, "EL") || "-",
           statusDocument: getLastSectionName(allSections, "DOCUMENT") || "-",
           totalOps: totalOps || "-",
+          // Rejected status fields
+          permitRejected: progress.PermitRejected,
+          sndRejected: progress.SNDRejected,
+          cwRejected: progress.CWRejected,
+          elRejected: progress.ELRejected,
+          documentRejected: progress.DocumentRejected,
+          // Reject reason fields
+          permitRejectReason: progress.PermitRejectReason,
+          sndRejectReason: progress.SNDRejectReason,
+          cwRejectReason: progress.CWRejectReason,
+          elRejectReason: progress.ELRejectReason,
+          documentRejectReason: progress.DocumentRejectReason,
         };
         
         console.log(`Row ${idx + 1} for site ${name}: docId = ${result.docId}`);
         return result;
       }));
       
-      // Filter agar hanya baris yang memiliki nama PIC sesuai loginName
-      const filteredData = mergedRows.filter(row =>
-        [row.picPermit, row.picSnd, row.picCw, row.picEl, row.picDocument]
-          .some(pic => (pic || '').toLowerCase().includes(loginName))
-      );
-      
-      // Generate nomor urut berdasarkan urutan data hasil filter
-      const numberedData = filteredData.map((row, idx) => ({
+      // Generate nomor urut untuk semua data tanpa filter
+      const numberedData = mergedRows.map((row, idx) => ({
         ...row,
         no: idx + 1,
       }));
@@ -835,8 +949,8 @@ const SiteDetailPage = () => {
       setSiteData(numberedData);
       setIsLoading(false);
     }
-    if (loginName) fetchSites();
-  }, [filters, loginName]);
+    fetchSites();
+  }, [filters]);
 
   // Apply frontend filtering including status filter
   const filteredData = siteData.filter(row => {
@@ -1355,38 +1469,78 @@ const SiteDetailPage = () => {
                             </td>
                             <td 
                               className="p-2 text-center border border-gray-300 text-gray-800 text-sm whitespace-nowrap cursor-pointer hover:bg-blue-50 transition-colors duration-200"
-                              onClick={() => router.push(`/project/pic/site/preview?siteId=${row.siteId}&division=PERMIT`)}
+                              onClick={() => router.push(`/project/pic/site/preview?siteName=${row.siteName}&division=PERMIT`)}
                               title="Click to view Permit sections"
                             >
-                              {row.permitStatus}
+                              <div className="flex items-center justify-center space-x-1">
+                                {row.permitRejected && (
+                                  <div 
+                                    className="w-2 h-2 bg-red-500 rounded-full cursor-help"
+                                    title={`Reject Reason = ${row.permitRejectReason || "No reason provided"}`}
+                                  ></div>
+                                )}
+                                <span>{row.permitStatus}</span>
+                              </div>
                             </td>
                             <td 
                               className="p-2 text-center border border-gray-300 text-gray-800 text-sm whitespace-nowrap cursor-pointer hover:bg-blue-50 transition-colors duration-200"
-                              onClick={() => router.push(`/project/pic/site/preview?siteId=${row.siteId}&division=SND`)}
+                              onClick={() => router.push(`/project/pic/site/preview?siteName=${row.siteName}&division=SND`)}
                               title="Click to view SND sections"
                             >
-                              {row.sndStatus}
+                              <div className="flex items-center justify-center space-x-1">
+                                {row.sndRejected && (
+                                  <div 
+                                    className="w-2 h-2 bg-red-500 rounded-full cursor-help"
+                                    title={`Reject Reason = ${row.sndRejectReason || "No reason provided"}`}
+                                  ></div>
+                                )}
+                                <span>{row.sndStatus}</span>
+                              </div>
                             </td>
                             <td 
                               className="p-2 text-center border border-gray-300 text-sm whitespace-nowrap text-black cursor-pointer hover:bg-blue-50 transition-colors duration-200"
-                              onClick={() => router.push(`/project/pic/site/preview?siteId=${row.siteId}&division=CW`)}
+                              onClick={() => router.push(`/project/pic/site/preview?siteName=${row.siteName}&division=CW`)}
                               title="Click to view CW sections"
                             >
-                              {row.cwStatus}
+                              <div className="flex items-center justify-center space-x-1">
+                                {row.cwRejected && (
+                                  <div 
+                                    className="w-2 h-2 bg-red-500 rounded-full cursor-help"
+                                    title={`Reject Reason = ${row.cwRejectReason || "No reason provided"}`}
+                                  ></div>
+                                )}
+                                <span>{row.cwStatus}</span>
+                              </div>
                             </td>
                             <td 
                               className="p-2 text-center border border-gray-300 text-gray-800 text-sm whitespace-nowrap cursor-pointer hover:bg-blue-50 transition-colors duration-200"
-                              onClick={() => router.push(`/project/pic/site/preview?siteId=${row.siteId}&division=EL`)}
+                              onClick={() => router.push(`/project/pic/site/preview?siteName=${row.siteName}&division=EL`)}
                               title="Click to view EL sections"
                             >
-                              {row.elStatus}
+                              <div className="flex items-center justify-center space-x-1">
+                                {row.elRejected && (
+                                  <div 
+                                    className="w-2 h-2 bg-red-500 rounded-full cursor-help"
+                                    title={`Reject Reason = ${row.elRejectReason || "No reason provided"}`}
+                                  ></div>
+                                )}
+                                <span>{row.elStatus}</span>
+                              </div>
                             </td>
                             <td 
                               className="p-2 text-center border border-gray-300 text-gray-800 text-sm whitespace-nowrap cursor-pointer hover:bg-blue-50 transition-colors duration-200"
-                              onClick={() => router.push(`/project/pic/site/preview?siteId=${row.siteId}&division=Document`)}
+                              onClick={() => router.push(`/project/pic/site/preview?siteName=${row.siteName}&division=Document`)}
                               title="Click to view Document sections"
                             >
-                              {row.document}
+                              <div className="flex items-center justify-center space-x-1">
+                                {row.documentRejected && (
+                                  <div 
+                                    className="w-2 h-2 bg-red-500 rounded-full cursor-help"
+                                    title={`Reject Reason = ${row.documentRejectReason || "No reason provided"}`}
+                                  ></div>
+                                )}
+                                <span>{row.document}</span>
+                              </div>
                             </td>
                             <td className="p-2 text-center border border-gray-300 text-gray-800 text-sm whitespace-nowrap">
                               {row.siteType}
@@ -1452,14 +1606,14 @@ const SiteDetailPage = () => {
                             <td className="p-2 text-center border border-gray-300 text-gray-800 text-sm whitespace-nowrap">
                               <div className="flex justify-center items-center space-x-3">
                                 <button
-                                  onClick={() => router.push(`/project/pic/site/preview?siteId=${row.siteId}`)}
+                                  onClick={() => router.push(`/project/pic/site/preview?siteName=${row.siteName}`)}
                                   className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-all duration-200 text-sm font-medium shadow-sm"
                                 >
                                   {row.operation}
                                 </button>
                                 <button
                                   onClick={() => {
-                                    setSelectedSiteId(row.siteId);
+                                    setSelectedSiteName(row.siteName);
                                     setIsBOQModalOpen(true);
                                   }}
                                   className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-all duration-200 text-sm font-medium shadow-sm"
@@ -1486,11 +1640,11 @@ const SiteDetailPage = () => {
             />
 
             {/* BOQ Details Modal */}
-            {selectedSiteId && (
+            {selectedSiteName && (
               <BOQDetailsModal
                 isOpen={isBOQModalOpen}
                 onClose={() => setIsBOQModalOpen(false)}
-                siteId={selectedSiteId}
+                siteName={selectedSiteName}
               />
             )}
           </div>

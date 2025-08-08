@@ -7,7 +7,7 @@ import { collection, getDocs, query, where } from "firebase/firestore";
 interface BOQDetailsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  siteId: string;
+  siteName: string;
 }
 
 interface BOQItem {
@@ -29,7 +29,7 @@ interface BOQFileData {
   [key: string]: any;
 }
 
-const BOQDetailsModal: React.FC<BOQDetailsModalProps> = ({ isOpen, onClose, siteId }) => {
+const BOQDetailsModal: React.FC<BOQDetailsModalProps> = ({ isOpen, onClose, siteName }) => {
   const [search, setSearch] = useState("");
   const [boqData, setBoqData] = useState<BOQItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -39,11 +39,11 @@ const BOQDetailsModal: React.FC<BOQDetailsModalProps> = ({ isOpen, onClose, site
   // Fetch BOQ data for the specific site
   useEffect(() => {
     const fetchBOQData = async () => {
-      if (!siteId) return;
+      if (!siteName) return;
       
       setLoading(true);
       try {
-        const q = query(collection(db, "boq_files"), where("siteId", "==", siteId));
+        const q = query(collection(db, "boq_files"), where("siteName", "==", siteName));
         const snapshot = await getDocs(q);
         const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as BOQFileData[];
         
@@ -115,10 +115,10 @@ const BOQDetailsModal: React.FC<BOQDetailsModalProps> = ({ isOpen, onClose, site
       }
     };
 
-    if (isOpen && siteId) {
+    if (isOpen && siteName) {
       fetchBOQData();
     }
-  }, [isOpen, siteId]);
+  }, [isOpen, siteName]);
 
   if (!isOpen) return null;
 
@@ -194,7 +194,7 @@ const BOQDetailsModal: React.FC<BOQDetailsModalProps> = ({ isOpen, onClose, site
         
         <div className="bg-blue-900 text-white rounded-t-xl px-8 py-4 font-bold text-lg flex items-center justify-end mb-0">
           <span className="w-full text-center text-base font-semibold tracking-wide">
-            COMPARE BOQ - {siteId}
+            COMPARE BOQ - {siteName}
           </span>
         </div>
         

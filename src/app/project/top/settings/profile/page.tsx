@@ -10,16 +10,13 @@ interface UserProfile {
   name: string;
   nik: string;
   email: string;
-  division: string;
   position: string;
   city: string;
-  bank: string;
-  bankNo: string;
 }
 
 const ProfileSettingsPage = () => {
   const [profile, setProfile] = useState<UserProfile>({
-    name: '', nik: '', email: '', division: '', position: '', city: '', bank: '', bankNo: ''
+    name: '', nik: '', email: '', position: '', city: ''
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -39,11 +36,8 @@ const ProfileSettingsPage = () => {
               name: data.name || '',
               nik: data.nik || '',
               email: data.email || user.email || '',
-              division: data.division || '',
               position: data.position || '',
               city: data.city || '',
-              bank: data.bank || '',
-              bankNo: data.bankNo || '',
             });
           } else {
             setError('User data not found.');
@@ -72,11 +66,8 @@ const ProfileSettingsPage = () => {
         name: profile.name,
         nik: profile.nik,
         email: profile.email,
-        division: profile.division,
         position: profile.position,
         city: profile.city,
-        bank: profile.bank,
-        bankNo: profile.bankNo,
       });
       setSuccess('Profile updated successfully!');
     } catch (err: any) {
@@ -139,24 +130,12 @@ const ProfileSettingsPage = () => {
                     <input name="email" value={profile.email} onChange={handleChange} className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" type="email" />
                   </div>
                   <div>
-                    <label className="block text-gray-700 text-sm font-bold mb-2">Division</label>
-                    <input name="division" value={profile.division} onChange={handleChange} className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" type="text" />
-                  </div>
-                  <div>
                     <label className="block text-gray-700 text-sm font-bold mb-2">Position</label>
                     <input name="position" value={profile.position} onChange={handleChange} className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" type="text" />
                   </div>
                   <div>
                     <label className="block text-gray-700 text-sm font-bold mb-2">City</label>
                     <input name="city" value={profile.city} onChange={handleChange} className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" type="text" />
-                  </div>
-                  <div>
-                    <label className="block text-gray-700 text-sm font-bold mb-2">Bank</label>
-                    <input name="bank" value={profile.bank} onChange={handleChange} className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" type="text" />
-                  </div>
-                  <div>
-                    <label className="block text-gray-700 text-sm font-bold mb-2">No. Bank</label>
-                    <input name="bankNo" value={profile.bankNo} onChange={handleChange} className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" type="text" />
                   </div>
                 </div>
                 <div className="mt-6 flex space-x-4">

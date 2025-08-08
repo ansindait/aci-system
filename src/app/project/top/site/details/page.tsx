@@ -44,7 +44,23 @@ async function testFirebaseConnection() {
 }
 
 // Backend logic for progress and status
-async function getSiteProgress(siteId: string, siteName?: string): Promise<{ Permit: string; SND: string; CW: string; EL: string; Document: string }> {
+async function getSiteProgress(siteId: string, siteName?: string): Promise<{ 
+  Permit: string; 
+  SND: string; 
+  CW: string; 
+  EL: string; 
+  Document: string;
+  PermitRejected: boolean;
+  SNDRejected: boolean;
+  CWRejected: boolean;
+  ELRejected: boolean;
+  DocumentRejected: boolean;
+  PermitRejectReason: string;
+  SNDRejectReason: string;
+  CWRejectReason: string;
+  ELRejectReason: string;
+  DocumentRejectReason: string;
+}> {
   try {
     // Find all task documents by siteId or siteName (tanpa filter division)
     let q;
@@ -58,7 +74,17 @@ async function getSiteProgress(siteId: string, siteName?: string): Promise<{ Per
         SND: "0/0", 
         CW: "0/0",
         EL: "0/0",
-        Document: "0/0"
+        Document: "0/0",
+        PermitRejected: false,
+        SNDRejected: false,
+        CWRejected: false,
+        ELRejected: false,
+        DocumentRejected: false,
+        PermitRejectReason: "",
+        SNDRejectReason: "",
+        CWRejectReason: "",
+        ELRejectReason: "",
+        DocumentRejectReason: ""
       };
     }
     const snap = await getDocs(q);
@@ -68,7 +94,17 @@ async function getSiteProgress(siteId: string, siteName?: string): Promise<{ Per
         SND: "0/0",
         CW: "0/0", 
         EL: "0/0",
-        Document: "0/0"
+        Document: "0/0",
+        PermitRejected: false,
+        SNDRejected: false,
+        CWRejected: false,
+        ELRejected: false,
+        DocumentRejected: false,
+        PermitRejectReason: "",
+        SNDRejectReason: "",
+        CWRejectReason: "",
+        ELRejectReason: "",
+        DocumentRejectReason: ""
       };
     }
     // Gabungkan semua sections dari semua dokumen tasks dengan siteName sama
@@ -191,11 +227,42 @@ async function getSiteProgress(siteId: string, siteName?: string): Promise<{ Per
       EL: { uploaded: 0, target: 0 },
       Document: { uploaded: 0, target: 0 }
     };
+
+    // Track rejected status for each division
+    const divisionRejected: { [key: string]: boolean } = {
+      PERMIT: false,
+      SND: false,
+      CW: false,
+      EL: false,
+      Document: false
+    };
+
+    // Track reject reasons for each division
+    const divisionRejectReasons: { [key: string]: string[] } = {
+      PERMIT: [],
+      SND: [],
+      CW: [],
+      EL: [],
+      Document: []
+    };
     // Process each section
     sectionList.forEach(({ title, division }) => {
       const sectionName = title.replace(/^[A-Z]+\.\s*/, "");
       const uploads = allSections.filter((s: any) => s.section === sectionName);
       const uploadedCount = uploads.length;
+      
+      // Check for rejected sections in this division
+      const rejectedSections = uploads.filter((s: any) => s.status_task === "Rejected");
+      if (rejectedSections.length > 0) {
+        divisionRejected[division] = true;
+        // Collect reject reasons
+        rejectedSections.forEach((section: any) => {
+          if (section.reject_reason) {
+            divisionRejectReasons[division].push(section.reject_reason);
+          }
+        });
+      }
+      
       // Target dari mapping
       const target = sectionPhotoMax[title] || 1;
       // Add to division totals
@@ -209,7 +276,17 @@ async function getSiteProgress(siteId: string, siteName?: string): Promise<{ Per
       SND: `${divisionProgress.SND.uploaded}/${divisionProgress.SND.target}`,
       CW: `${divisionProgress.CW.uploaded}/${divisionProgress.CW.target}`,
       EL: `${divisionProgress.EL.uploaded}/${divisionProgress.EL.target}`,
-      Document: `${divisionProgress.Document.uploaded}/${divisionProgress.Document.target}`
+      Document: `${divisionProgress.Document.uploaded}/${divisionProgress.Document.target}`,
+      PermitRejected: divisionRejected.PERMIT,
+      SNDRejected: divisionRejected.SND,
+      CWRejected: divisionRejected.CW,
+      ELRejected: divisionRejected.EL,
+      DocumentRejected: divisionRejected.Document,
+      PermitRejectReason: divisionRejectReasons.PERMIT.join("; "),
+      SNDRejectReason: divisionRejectReasons.SND.join("; "),
+      CWRejectReason: divisionRejectReasons.CW.join("; "),
+      ELRejectReason: divisionRejectReasons.EL.join("; "),
+      DocumentRejectReason: divisionRejectReasons.Document.join("; ")
     };
   } catch (error) {
     return {
@@ -217,7 +294,17 @@ async function getSiteProgress(siteId: string, siteName?: string): Promise<{ Per
       SND: "0/0",
       CW: "0/0",
       EL: "0/0",
-      Document: "0/0"
+      Document: "0/0",
+      PermitRejected: false,
+      SNDRejected: false,
+      CWRejected: false,
+      ELRejected: false,
+      DocumentRejected: false,
+      PermitRejectReason: "",
+      SNDRejectReason: "",
+      CWRejectReason: "",
+      ELRejectReason: "",
+      DocumentRejectReason: ""
     };
   }
   // Final fallback return to satisfy linter
@@ -226,7 +313,17 @@ async function getSiteProgress(siteId: string, siteName?: string): Promise<{ Per
     SND: "0/0",
     CW: "0/0",
     EL: "0/0",
-    Document: "0/0"
+    Document: "0/0",
+    PermitRejected: false,
+    SNDRejected: false,
+    CWRejected: false,
+    ELRejected: false,
+    DocumentRejected: false,
+    PermitRejectReason: "",
+    SNDRejectReason: "",
+    CWRejectReason: "",
+    ELRejectReason: "",
+    DocumentRejectReason: ""
   };
 }
 
@@ -486,6 +583,18 @@ interface SiteData {
   statusEl: string;
   statusDocument: string;
   totalOps: string;
+  // Rejected status fields
+  permitRejected: boolean;
+  sndRejected: boolean;
+  cwRejected: boolean;
+  elRejected: boolean;
+  documentRejected: boolean;
+  // Reject reason fields
+  permitRejectReason: string;
+  sndRejectReason: string;
+  cwRejectReason: string;
+  elRejectReason: string;
+  documentRejectReason: string;
   // Tambahan agar mapping tidak error
   division?: string;
   pic?: string;
@@ -499,7 +608,7 @@ const SiteDetailPage = () => {
   const [formData, setFormData] = useState<Partial<SiteData>>({});
   // Modal state for BOQ details
   const [isBOQModalOpen, setIsBOQModalOpen] = useState(false);
-  const [selectedSiteId, setSelectedSiteId] = useState<string | null>(null);
+  const [selectedSiteName, setSelectedSiteName] = useState<string | null>(null);
   // Add refresh trigger state
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
@@ -820,6 +929,18 @@ const SiteDetailPage = () => {
           statusEl: getLastSectionName(allSections, "EL") || "-",
           statusDocument: getLastSectionName(allSections, "DOCUMENT") || "-",
           totalOps: totalOps || "-",
+          // Rejected status fields
+          permitRejected: progress.PermitRejected,
+          sndRejected: progress.SNDRejected,
+          cwRejected: progress.CWRejected,
+          elRejected: progress.ELRejected,
+          documentRejected: progress.DocumentRejected,
+          // Reject reason fields
+          permitRejectReason: progress.PermitRejectReason,
+          sndRejectReason: progress.SNDRejectReason,
+          cwRejectReason: progress.CWRejectReason,
+          elRejectReason: progress.ELRejectReason,
+          documentRejectReason: progress.DocumentRejectReason,
         };
         
         console.log(`Row ${idx + 1} for site ${name}: docId = ${result.docId}`);
@@ -984,37 +1105,66 @@ const SiteDetailPage = () => {
           addFieldIfChanged("siteName", formData.siteName, row.siteName) && (regularFields.siteName = formData.siteName);
           addFieldIfChanged("rpm", formData.rpm, row.rpm) && (regularFields.rpm = formData.rpm);
           
-          // Check PIC changes and determine if new tasks need to be created
+          // Handle non-document PIC changes
           const picChanges = [
             { field: 'picPermit', division: 'permit', value: formData.picPermit, original: row.picPermit },
             { field: 'picSnd', division: 'snd', value: formData.picSnd, original: row.picSnd },
             { field: 'picCw', division: 'cw', value: formData.picCw, original: row.picCw },
-            { field: 'picEl', division: 'el', value: formData.picEl, original: row.picEl },
-            { field: 'picDocument', division: 'document', value: formData.picDocument, original: row.picDocument }
+            { field: 'picEl', division: 'el', value: formData.picEl, original: row.picEl }
           ];
           
           for (const picChange of picChanges) {
             const change = addFieldIfChanged(picChange.field, picChange.value, picChange.original);
             if (change && change.value) {
-              // Check if a document for this division already exists
               const existingDivisionDoc = siteDocs.find(doc => 
                 doc.division && doc.division.toLowerCase() === picChange.division.toLowerCase()
               );
               
               if (existingDivisionDoc) {
-                // Update existing document
                 console.log(`Updating PIC ${picChange.division} on existing document ${existingDivisionDoc.docId}: "${change.value}"`);
                 updates.push({ 
                   docId: existingDivisionDoc.docId, 
                   fields: { pic: change.value } 
                 });
               } else {
-                // Create new task for this division
                 console.log(`Creating new task for division ${picChange.division} with PIC: "${change.value}"`);
                 newTasksToCreate.push({ 
                   division: picChange.division, 
                   pic: change.value 
                 });
+              }
+            }
+          }
+
+          // Handle document division specially
+          if (formData.picDocument !== row.picDocument) {
+            const existingDocumentDoc = siteDocs.find(doc => 
+              doc.division && doc.division.toLowerCase() === 'document'
+            );
+
+            if (existingDocumentDoc) {
+              // Only update PIC for existing document division
+              console.log(`Updating PIC for existing document division: "${formData.picDocument}"`);
+              updates.push({
+                docId: existingDocumentDoc.docId,
+                fields: { pic: formData.picDocument }
+              });
+            } else {
+              // For new document division, get PIC from users with division "dc"
+              const dcUsers = users.filter(user => 
+                user.division?.toLowerCase() === 'dc' || 
+                user.role?.toLowerCase() === 'dc' || 
+                user.department?.toLowerCase() === 'dc'
+              );
+
+              if (dcUsers.length > 0) {
+                console.log(`Creating new document task with DC users as PIC`);
+                newTasksToCreate.push({
+                  division: 'document', // Save as 'document' in database
+                  pic: formData.picDocument ?? "" // Use the selected PIC from the form, fallback to empty string
+                });
+              } else {
+                console.warn('No DC users found for document division');
               }
             }
           }
@@ -1025,7 +1175,7 @@ const SiteDetailPage = () => {
             console.log(`Regular fields to update on ${row.docId}:`, regularFields);
           }
           
-          // Handle HP fields - these need to be updated on division-specific documents
+          // Handle HP fields
           const hpUpdates = [
             { field: 'ntpHp', division: 'permit', value: formData.ntpHp, original: row.ntpHp },
             { field: 'drmHp', division: 'snd', value: formData.drmHp, original: row.drmHp },
@@ -1035,7 +1185,6 @@ const SiteDetailPage = () => {
           for (const hpUpdate of hpUpdates) {
             const change = addFieldIfChanged(hpUpdate.field, hpUpdate.value, hpUpdate.original);
             if (change) {
-              // Find the document for this specific division
               const divisionDoc = siteDocs.find(doc => 
                 doc.division && doc.division.toLowerCase() === hpUpdate.division.toLowerCase()
               );
@@ -1047,13 +1196,11 @@ const SiteDetailPage = () => {
                   fields: { hp: change.value } 
                 });
               } else {
-                // Add HP to new task creation if it's being created
                 const newTaskIndex = newTasksToCreate.findIndex(task => task.division === hpUpdate.division);
                 if (newTaskIndex !== -1) {
                   newTasksToCreate[newTaskIndex].hp = change.value;
                 } else {
                   console.warn(`No document found for division ${hpUpdate.division} in site ${row.siteName}`);
-                  // Fallback: update on the latest document
                   if (!updates.find(u => u.docId === row.docId)) {
                     updates.push({ docId: row.docId, fields: {} });
                   }
@@ -1666,35 +1813,75 @@ const SiteDetailPage = () => {
                               onClick={() => router.push(`/project/top/site/preview?siteId=${row.siteId}&division=PERMIT`)}
                               title="Click to view Permit sections"
                             >
-                              {row.permitStatus}
+                              <div className="flex items-center justify-center space-x-1">
+                                {row.permitRejected && (
+                                  <div 
+                                    className="w-2 h-2 bg-red-500 rounded-full cursor-help"
+                                    title={`Reject Reason = ${row.permitRejectReason || "No reason provided"}`}
+                                  ></div>
+                                )}
+                                <span>{row.permitStatus}</span>
+                              </div>
                             </td>
                             <td 
                               className="p-2 text-center border border-gray-300 text-gray-800 text-sm whitespace-nowrap cursor-pointer hover:bg-blue-50 transition-colors duration-200"
                               onClick={() => router.push(`/project/top/site/preview?siteId=${row.siteId}&division=SND`)}
                               title="Click to view SND sections"
                             >
-                              {row.sndStatus}
+                              <div className="flex items-center justify-center space-x-1">
+                                {row.sndRejected && (
+                                  <div 
+                                    className="w-2 h-2 bg-red-500 rounded-full cursor-help"
+                                    title={`Reject Reason = ${row.sndRejectReason || "No reason provided"}`}
+                                  ></div>
+                                )}
+                                <span>{row.sndStatus}</span>
+                              </div>
                             </td>
                             <td 
                               className="p-2 text-center border border-gray-300 text-sm whitespace-nowrap text-black cursor-pointer hover:bg-blue-50 transition-colors duration-200"
                               onClick={() => router.push(`/project/top/site/preview?siteId=${row.siteId}&division=CW`)}
                               title="Click to view CW sections"
                             >
-                              {row.cwStatus}
+                              <div className="flex items-center justify-center space-x-1">
+                                {row.cwRejected && (
+                                  <div 
+                                    className="w-2 h-2 bg-red-500 rounded-full cursor-help"
+                                    title={`Reject Reason = ${row.cwRejectReason || "No reason provided"}`}
+                                  ></div>
+                                )}
+                                <span>{row.cwStatus}</span>
+                              </div>
                             </td>
                             <td 
                               className="p-2 text-center border border-gray-300 text-gray-800 text-sm whitespace-nowrap cursor-pointer hover:bg-blue-50 transition-colors duration-200"
                               onClick={() => router.push(`/project/top/site/preview?siteId=${row.siteId}&division=EL`)}
                               title="Click to view EL sections"
                             >
-                              {row.elStatus}
+                              <div className="flex items-center justify-center space-x-1">
+                                {row.elRejected && (
+                                  <div 
+                                    className="w-2 h-2 bg-red-500 rounded-full cursor-help"
+                                    title={`Reject Reason = ${row.elRejectReason || "No reason provided"}`}
+                                  ></div>
+                                )}
+                                <span>{row.elStatus}</span>
+                              </div>
                             </td>
                             <td 
                               className="p-2 text-center border border-gray-300 text-gray-800 text-sm whitespace-nowrap cursor-pointer hover:bg-blue-50 transition-colors duration-200"
                               onClick={() => router.push(`/project/top/site/preview?siteId=${row.siteId}&division=Document`)}
                               title="Click to view Document sections"
                             >
-                              {row.document}
+                              <div className="flex items-center justify-center space-x-1">
+                                {row.documentRejected && (
+                                  <div 
+                                    className="w-2 h-2 bg-red-500 rounded-full cursor-help"
+                                    title={`Reject Reason = ${row.documentRejectReason || "No reason provided"}`}
+                                  ></div>
+                                )}
+                                <span>{row.document}</span>
+                              </div>
                             </td>
                             <td className="p-2 text-center border border-gray-300 text-gray-800 text-sm whitespace-nowrap">
                               {displayValue(row.siteType)}
@@ -1760,14 +1947,14 @@ const SiteDetailPage = () => {
                             <td className="p-2 text-center border border-gray-300 text-gray-800 text-sm whitespace-nowrap">
                               <div className="flex justify-center items-center space-x-3">
                                 <button
-                                  onClick={() => router.push(`/project/top/site/preview?siteId=${encodeURIComponent(row.siteId)}`)}
+                                  onClick={() => router.push(`/project/top/site/preview?siteName=${encodeURIComponent(row.siteName)}`)}
                                   className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-all duration-200 text-sm font-medium shadow-sm"
                                 >
                                   {displayValue(row.operation)}
                                 </button>
                                 <button
                                   onClick={() => {
-                                    setSelectedSiteId(row.siteId);
+                                    setSelectedSiteName(row.siteName);
                                     setIsBOQModalOpen(true);
                                   }}
                                   className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-all duration-200 text-sm font-medium shadow-sm"
@@ -2017,11 +2204,11 @@ const SiteDetailPage = () => {
         </div>
       </div>
       {/* BOQ Details Modal */}
-      {selectedSiteId && (
+      {selectedSiteName && (
         <BOQDetailsModal
           isOpen={isBOQModalOpen}
           onClose={() => setIsBOQModalOpen(false)}
-          siteId={selectedSiteId}
+          siteName={selectedSiteName}
         />
       )}
     </div>

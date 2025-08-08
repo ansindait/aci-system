@@ -94,6 +94,7 @@ const SitePreviewContent = () => {
   const { user } = useAuth();
   const searchParams = useSearchParams();
   const siteIdParam = searchParams.get('siteId');
+  const siteNameParam = searchParams.get('siteName');
   const divisionParam = searchParams.get('division');
   const validDivisions = ["PERMIT", "SND", "CW", "EL", "Document", "Material"];
   const initialDivision = divisionParam && validDivisions.includes(divisionParam) ? divisionParam : "PERMIT";
@@ -155,6 +156,18 @@ const SitePreviewContent = () => {
   // Add state for total HP calculation
   const [totalHP, setTotalHP] = useState<number>(0);
 
+  // Initialize state from URL parameters
+  useEffect(() => {
+    if (siteNameParam) {
+      setSelectedSiteName(siteNameParam);
+      console.log('Setting selectedSiteName from URL parameter:', siteNameParam);
+    }
+    if (siteIdParam) {
+      setSelectedSiteId(siteIdParam);
+      console.log('Setting selectedSiteId from URL parameter:', siteIdParam);
+    }
+  }, [siteNameParam, siteIdParam]);
+
   const toggleSection = useCallback((section: string) => {
     setIsOpen((prev) => ({ ...prev, [section]: !prev[section] }));
   }, []);
@@ -199,7 +212,7 @@ const SitePreviewContent = () => {
     "L. REDLINE": 1,
     // EL
     "A. OPM Test": 1,
-    "B. TDR": 1,
+    "B. OTDR": 1,
     "C. RFS EL": 1,
     "D. ATP EL": 3,
     // Document
@@ -274,7 +287,7 @@ const SitePreviewContent = () => {
     { title: "L. REDLINE", division: "CW" },
     // EL
     { title: "A. OPM Test", division: "EL" },
-    { title: "B. TDR", division: "EL" },
+    { title: "B. OTDR", division: "EL" },
     { title: "C. RFS EL", division: "EL" },
     { title: "D. ATP EL", division: "EL" },
     // Document
@@ -722,7 +735,11 @@ const SitePreviewContent = () => {
     }
   };
   const handleSiteIdChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    setSelectedSiteId(e.target.value);
+    const siteId = e.target.value;
+    setSelectedSiteId(siteId);
+    // Cari siteName yang sesuai dari daftar filteredSites
+    const matchedSite = filteredSites.find(site => site.siteId === siteId);
+    setSelectedSiteName(matchedSite ? matchedSite.siteName : "");
   };
 
   // Handler for upload card file change (per section)
@@ -1119,8 +1136,8 @@ const SitePreviewContent = () => {
         const tableY = 30;
         
         // Get text content for dynamic sizing
-        const siteIdText = selectedSiteId || selectedSiteName || '-';
-        const siteNameText = selectedSiteName || selectedSiteId || '-';
+        const siteIdText = selectedSiteId || '-';
+        const siteNameText = selectedSiteName || '-';
         const regionText = taskInfo?.region || '-';
         const dateText = new Date().toLocaleDateString('en-CA');
         

@@ -39,7 +39,9 @@ const TaskHistoryPage = () => {
   const [filters, setFilters] = useState({
     rpm: '',
     status: '',
-    date: ''
+    date: '',
+    siteNameSearch: '',
+    siteIdSearch: ''
   });
   
   // Sorting states
@@ -176,6 +178,8 @@ const TaskHistoryPage = () => {
     if (filters.rpm && task.rpm !== filters.rpm) return false;
     if (filters.status && task.status !== filters.status) return false;
     if (filters.date && task.lastActivity !== filters.date) return false;
+    if (filters.siteNameSearch && !task.siteName.toLowerCase().includes(filters.siteNameSearch.toLowerCase())) return false;
+    if (filters.siteIdSearch && !task.siteId.toLowerCase().includes(filters.siteIdSearch.toLowerCase())) return false;
     return true;
   }));
 
@@ -446,9 +450,70 @@ const TaskHistoryPage = () => {
               </div>
             </div>
           </div>
-          <div className="bg-white rounded-lg shadow-md p-4">
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4">
-              <div className="flex space-x-4 mb-2 sm:mb-0">
+            {/* Improved Filter Layout */}
+            <div className="mb-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
+                <div className="flex flex-col gap-2">
+                  <label className="text-xs text-gray-500 font-semibold">Search Site Name</label>
+                  <input
+                    type="text"
+                    className="border p-2 rounded text-black w-full"
+                    placeholder="Search Site Name"
+                    value={filters.siteNameSearch}
+                    onChange={e => setFilters({ ...filters, siteNameSearch: e.target.value })}
+                  />
+                </div>
+                <div className="flex flex-col gap-2">
+                  <label className="text-xs text-gray-500 font-semibold">Search Site ID</label>
+                  <input
+                    type="text"
+                    className="border p-2 rounded text-black w-full"
+                    placeholder="Search Site ID"
+                    value={filters.siteIdSearch}
+                    onChange={e => setFilters({ ...filters, siteIdSearch: e.target.value })}
+                  />
+                </div>
+                <div className="flex flex-col gap-2">
+                  <label className="text-xs text-gray-500 font-semibold">Filter by RPM</label>
+                  <select 
+                    className="border p-2 rounded text-black w-full"
+                    value={filters.rpm}
+                    onChange={(e) => setFilters({...filters, rpm: e.target.value})}
+                  >
+                    <option value="">All RPM</option>
+                    {rpmOptions.map((rpm) => (
+                      <option key={rpm} value={rpm}>{rpm}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <label className="text-xs text-gray-500 font-semibold">Filter by Status</label>
+                  <select 
+                    className="border p-2 rounded text-black w-full"
+                    value={filters.status}
+                    onChange={(e) => setFilters({...filters, status: e.target.value})}
+                  >
+                    <option value="">All Status</option>
+                    {statusOptions.map((status) => (
+                      <option key={status} value={status}>{status}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <label className="text-xs text-gray-500 font-semibold">Filter by Date</label>
+                  <select 
+                    className="border p-2 rounded text-black w-full"
+                    value={filters.date}
+                    onChange={(e) => setFilters({...filters, date: e.target.value})}
+                  >
+                    <option value="">All Dates</option>
+                    {dateOptions.map((date) => (
+                      <option key={date} value={date}>{date}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2 items-center mb-2">
                 {!isEditing && (
                   <>
                     <button
@@ -467,36 +532,6 @@ const TaskHistoryPage = () => {
                     </button>
                   </>
                 )}
-                <select 
-                  className="border p-2 rounded text-black"
-                  value={filters.rpm}
-                  onChange={(e) => setFilters({...filters, rpm: e.target.value})}
-                >
-                  <option value="">Filter by RPM</option>
-                  {rpmOptions.map((rpm) => (
-                    <option key={rpm} value={rpm}>{rpm}</option>
-                  ))}
-                </select>
-                <select 
-                  className="border p-2 rounded text-black"
-                  value={filters.status}
-                  onChange={(e) => setFilters({...filters, status: e.target.value})}
-                >
-                  <option value="">Filter by Status</option>
-                  {statusOptions.map((status) => (
-                    <option key={status} value={status}>{status}</option>
-                  ))}
-                </select>
-                <select 
-                  className="border p-2 rounded text-black"
-                  value={filters.date}
-                  onChange={(e) => setFilters({...filters, date: e.target.value})}
-                >
-                  <option value="">Filter by Date</option>
-                  {dateOptions.map((date) => (
-                    <option key={date} value={date}>{date}</option>
-                  ))}
-                </select>
                 <button 
                   className={`px-4 py-2 rounded transition-colors duration-200 ${
                     exporting || filteredData.length === 0
@@ -516,19 +551,19 @@ const TaskHistoryPage = () => {
                     Clear Sort
                   </button>
                 )}
-              </div>
-              <div className="text-sm text-gray-600 font-medium">
-                Showing {startIndex + 1}-{Math.min(endIndex, filteredData.length)} of {filteredData.length} records (Page {currentPage} of {totalPages})
-                {selectedRows.length > 0 && (
-                  <span className="ml-2 text-red-600">
-                    (Selected: {selectedRows.length} items)
-                  </span>
-                )}
-                {filteredData.length > 0 && (
-                  <span className="ml-2 text-blue-600">
-                    (Ready to export: {filteredData.length} records)
-                  </span>
-                )}
+                <div className="text-sm text-gray-600 font-medium ml-2">
+                  Showing {startIndex + 1}-{Math.min(endIndex, filteredData.length)} of {filteredData.length} records (Page {currentPage} of {totalPages})
+                  {selectedRows.length > 0 && (
+                    <span className="ml-2 text-red-600">
+                      (Selected: {selectedRows.length} items)
+                    </span>
+                  )}
+                  {filteredData.length > 0 && (
+                    <span className="ml-2 text-blue-600">
+                      (Ready to export: {filteredData.length} records)
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
             {loading ? (
@@ -571,6 +606,9 @@ const TaskHistoryPage = () => {
                     <th className="p-2 border cursor-pointer hover:bg-blue-800" onClick={() => handleSort('pic')}>
                       PIC {sortConfig?.key === 'pic' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
                     </th>
+                    <th className="p-2 border cursor-pointer hover:bg-blue-800" onClick={() => handleSort('division')}>
+                      Division {sortConfig?.key === 'division' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
+                    </th>
                     <th className="p-2 border cursor-pointer hover:bg-blue-800" onClick={() => handleSort('lastActivity')}>
                       Last Activity {sortConfig?.key === 'lastActivity' && (sortConfig.direction === 'asc' ? '↑' : '↓')}
                     </th>
@@ -596,6 +634,7 @@ const TaskHistoryPage = () => {
                       <td className="p-2 border">{task.status || '-'}</td>
                       <td className="p-2 border">{task.rpm || '-'}</td>
                       <td className="p-2 border">{task.pic || '-'}</td>
+                      <td className="p-2 border">{task.division || '-'}</td>
                       <td className="p-2 border">{task.lastActivity || '-'}</td>
                     </tr>
                   ))}
@@ -778,7 +817,7 @@ const TaskHistoryPage = () => {
           </div>
         </div>
       </div>
-    </div>
+      
   );
 };
 
